@@ -1,0 +1,1281 @@
+/* ==========================================================================
+   TRAUMVEREIN – Spezialstile für einzelne Bildschirme
+   Diese Klassen stehen allen screens/*.js zur Verfügung.
+   ========================================================================== */
+
+/* ---------- Startbildschirm --------------------------------------------- */
+
+.tv-start {
+  position: fixed; inset: 0; z-index: 400;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 18px;
+  background:
+    radial-gradient(ellipse at 50% 20%, rgba(255, 255, 255, .1), transparent 55%),
+    linear-gradient(170deg, var(--gruen-700), var(--gruen-900) 60%, var(--holz-900));
+  overflow: auto; padding: 24px;
+}
+.tv-start__logo {
+  font-family: var(--font-titel);
+  font-size: clamp(44px, 9vw, 104px);
+  letter-spacing: 5px;
+  color: var(--papier);
+  text-shadow: 4px 4px 0 var(--rot), 8px 8px 0 rgba(0, 0, 0, .45);
+  margin: 0; line-height: .95; text-align: center;
+}
+.tv-start__unter {
+  font-size: 15px; letter-spacing: 6px; text-transform: uppercase;
+  color: var(--gold-hell); text-shadow: 2px 2px 0 rgba(0, 0, 0, .5);
+}
+/* `100%` statt `96vw`: Der Startbildschirm hat selbst 24 px Innenrand, den
+   `vw` nicht kennt – bei 900 px Fensterbreite ergaben 96vw + 2 × 24 px genau
+   12 px zu viel, und die Seite scrollte waagerecht. */
+.tv-start__box { width: min(880px, 100%); }
+.tv-start__vereine { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 7px; max-height: 46vh; overflow-y: auto; padding: 3px; }
+.tv-start__verein {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  background: linear-gradient(180deg, var(--flaeche-hell), var(--flaeche));
+  border: 2px solid transparent; border-radius: 3px;
+  cursor: pointer; text-align: left;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .3);
+}
+.tv-start__verein:hover { filter: brightness(1.08); }
+.tv-start__verein.gewaehlt { border-color: var(--gold); box-shadow: 0 0 10px var(--gold), 0 2px 0 rgba(0,0,0,.3); }
+.tv-start__verein canvas { flex: 0 0 30px; }
+.tv-start__verein span { font-size: 11.5px; font-weight: 700; line-height: 1.15; }
+.tv-start__verein small { display: block; font-weight: 400; opacity: .7; font-size: 10px; }
+
+.tv-schwierigkeit { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tv-schwierigkeit button {
+  padding: 9px; border: 2px solid transparent; border-radius: 3px;
+  background: linear-gradient(180deg, var(--flaeche-hell), var(--flaeche));
+  cursor: pointer; text-align: center; box-shadow: 0 2px 0 rgba(0,0,0,.3);
+}
+.tv-schwierigkeit button.gewaehlt { border-color: var(--rot); box-shadow: 0 0 8px rgba(193,39,45,.8); }
+.tv-schwierigkeit b { display: block; font-size: 12.5px; }
+.tv-schwierigkeit small { font-size: 10.5px; color: var(--tinte-weich); line-height: 1.25; display: block; margin-top: 3px; }
+
+/* ---------- Büro (Schreibtisch-Metapher) --------------------------------- */
+
+.tv-buero { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; }
+.tv-buero__post { max-height: 460px; }
+.tv-brief {
+  display: flex; gap: 9px; padding: 7px 9px;
+  border-bottom: 1px solid rgba(0, 0, 0, .16);
+  cursor: pointer;
+}
+.tv-brief:hover { background: rgba(255, 245, 200, .55); }
+.tv-brief--ungelesen { background: rgba(255, 255, 255, .38); font-weight: 600; }
+.tv-brief--ungelesen .tv-brief__betreff::before { content: '● '; color: var(--rot); }
+.tv-brief__icon { font-size: 20px; flex: 0 0 24px; text-align: center; }
+.tv-brief__text { min-width: 0; flex: 1; }
+.tv-brief__betreff { font-size: 12.5px; }
+.tv-brief__von { font-size: 10.5px; color: var(--tinte-weich); }
+.tv-brief__tag { font-size: 10px; color: var(--tinte-weich); white-space: nowrap; }
+
+.tv-pinnwand {
+  background:
+    repeating-linear-gradient(45deg, rgba(0,0,0,.03) 0 3px, transparent 3px 6px),
+    linear-gradient(180deg, #b98a52, #8f6438);
+  padding: 10px; border: 4px solid var(--holz-700); border-radius: 3px;
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, .35);
+}
+.tv-zettel {
+  background: #fffbe8; padding: 7px 9px; margin-bottom: 7px;
+  box-shadow: 2px 3px 6px rgba(0, 0, 0, .4);
+  font-size: 12px; line-height: 1.35;
+  transform: rotate(-.6deg);
+}
+.tv-zettel:nth-child(even) { transform: rotate(.8deg); background: #fff4d6; }
+.tv-zettel b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--rot); }
+
+/* ---------- Kader --------------------------------------------------------- */
+
+.tv-kader { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 12px; align-items: start; }
+@media (max-width: 1250px) { .tv-kader { grid-template-columns: minmax(0, 1fr); } }
+
+.tv-spielerkarte { display: flex; flex-direction: column; gap: 8px; }
+.tv-spielerkarte__kopf { display: flex; gap: 10px; align-items: flex-start; }
+.tv-spielerkarte__name { font-size: 17px; font-weight: 700; line-height: 1.1; }
+.tv-spielerkarte__meta { font-size: 11.5px; color: var(--tinte-weich); line-height: 1.4; }
+/* Die dritte Spalte war fest 26 px breit. Auf dem Trainingsbildschirm steht
+   dort aber „×0.70" statt einer zweistelligen Zahl – 35 px Inhalt in 26 px
+   Kasten, bei JEDER Fensterbreite. `minmax` gibt den Platz erst her, wenn er
+   gebraucht wird; im Kaderbildschirm bleibt alles auf der alten Kante. */
+.tv-attr { display: grid; grid-template-columns: 92px minmax(0, 1fr) minmax(26px, auto); gap: 5px; align-items: center; font-size: 11.5px; margin-bottom: 2px; }
+.tv-attr__name { color: var(--tinte-weich); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tv-ovr {
+  width: 46px; height: 46px; flex: 0 0 46px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 50%; color: #fff;
+  font-family: var(--font-num); font-weight: 700;
+  border: 2px solid rgba(0, 0, 0, .35);
+  box-shadow: inset 0 -3px 6px rgba(0, 0, 0, .3);
+}
+.tv-ovr b { font-size: 19px; line-height: 1; }
+.tv-ovr small { font-size: 8.5px; letter-spacing: .4px; }
+
+/* ---------- Die Kabine (Kader, Vereinsakte, Taktik) ---------------------------
+   Hierarchie, Cliquen, Mentoren und paarweise Eingespieltheit. Drei Bildschirme
+   zeigen dieselben Dinge in verschiedener Ausführlichkeit – die Bausteine sind
+   deshalb bewusst klein gehalten und überall gleich benannt. */
+
+/* Eine Zeile der Hackordnung: Platzziffer, Gesicht, Name, Einfluss – und im
+ * Stadion dieselbe Klasse für Rang, Balken und Anzahl.
+ *
+ * KONFLIKT AUFGELÖST (Abnahme nach Stufe 6). Hier standen bis dahin ZWEI
+ * `.tv-rang`-Regeln: diese als Gitter und eine zweite im Stadion-Abschnitt als
+ * Flex-Zeile. Gleiche Spezifität, spätere Zeile – das Stadion gewann, das
+ * Gitter war seit jeher wirkungslos. Geblieben ist die eine Regel, die wirklich
+ * gerendert hat; die Werte sind unverändert die des Stadion-Blocks, damit sich
+ * am Bild nichts ändert.
+ *
+ * Warum nicht andersherum, also das Gitter reaktiviert? Weil es zu eng war:
+ * Seine vierte Spalte gibt der Pille 84 px, und „Führungsspieler" braucht bei
+ * 10 px Versalien rund 115 px. Wer das Gitter zurückholen will, misst zuerst
+ * die breiteste Pille aus `morale.js:RANG_NAMEN` – vorher nicht.
+ */
+.tv-rang {
+  display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap;
+  padding: 5px; border-bottom: 1px solid rgba(0, 0, 0, .14);
+}
+.tv-rang:last-child { border-bottom: 0; }
+.tv-rang--eigen { background: rgba(255, 245, 200, .6); box-shadow: inset 3px 0 0 var(--gold); }
+.tv-rang__nr { font-family: var(--font-num); font-size: 11px; color: var(--tinte-weich); text-align: right; }
+.tv-rang__name { min-width: 0; font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-rang__grund { font-size: 10px; color: var(--tinte-weich); font-weight: 400; }
+.tv-rang__wert { font-family: var(--font-num); font-size: 11px; font-weight: 700; text-align: right; }
+
+/* Ein Grüppchen als Kasten: Kopf mit Art und Stimmung, darunter die Mitglieder. */
+.tv-clique {
+  padding: 5px 7px; margin-bottom: 5px;
+  background: rgba(255, 255, 255, .32);
+  border: 1px solid var(--linie); border-left: 3px solid var(--tuerkis); border-radius: 2px;
+}
+.tv-clique--heiss { border-left-color: var(--rot); }
+.tv-clique__kopf { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+.tv-clique__label { font-size: 12px; font-weight: 700; min-width: 0; }
+/* „2 Mann · Zusammenhalt 63 · Stimmung 70" ist 23 px zu lang, sobald die
+   Vereinsakte einspaltig wird. Umbrechen statt aus dem Kasten laufen. */
+.tv-clique__zahlen { font-family: var(--font-num); font-size: 10.5px; color: var(--tinte-weich); }
+.tv-clique__koepfe { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px 0 2px; }
+.tv-clique__text { font-size: 11px; line-height: 1.4; }
+
+/* Ein Mentorenpaar: zwei Gesichter, ein Pfeil, darunter der Fortschritt. */
+.tv-mentor {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 7px; margin-bottom: 5px;
+  background: linear-gradient(90deg, rgba(217, 165, 33, .22), rgba(255, 255, 255, .3) 70%);
+  border: 1px solid var(--linie); border-radius: 2px;
+}
+.tv-mentor__seite { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.tv-mentor__pfeil { font-size: 15px; color: var(--holz-600); flex: 0 0 auto; }
+.tv-mentor__name { font-size: 11.5px; font-weight: 700; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-mentor__rolle { font-size: 9.5px; letter-spacing: .5px; text-transform: uppercase; color: var(--tinte-weich); }
+.tv-mentor__zahlen { margin-left: auto; text-align: right; flex: 0 0 auto; }
+.tv-mentor__text { font-size: 11px; line-height: 1.4; margin-top: 3px; }
+.tv-mentor__vorschlag {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center;
+  padding: 5px 0; border-bottom: 1px dotted rgba(0, 0, 0, .18);
+}
+.tv-mentor__vorschlag:last-child { border-bottom: 0; }
+
+/* Ein Paar und seine Eingespieltheit – die Ära-Mischung in einer Zeile. */
+.tv-paar {
+  display: grid; grid-template-columns: minmax(0, 1fr) 76px 30px;
+  gap: 6px; align-items: center;
+  padding: 2px 3px; border-bottom: 1px dotted rgba(0, 0, 0, .14);
+  font-size: 11.5px;
+}
+.tv-paar:last-child { border-bottom: 0; }
+.tv-paar__namen { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-paar__wert { font-family: var(--font-num); font-weight: 700; text-align: right; }
+.tv-paar--gemischt .tv-paar__namen::after { content: ' ⧗'; color: var(--holz-600); }
+
+/* Der Balken „so viele Legenden, so viele Moderne" – auch außerhalb des Taktikbretts. */
+.tv-aeramix { display: flex; height: 15px; border: 1px solid var(--linie); border-radius: 2px; overflow: hidden; margin: 4px 0 3px; }
+.tv-aeramix > div {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9.5px; font-weight: 700; color: #fff; text-shadow: 1px 1px 0 rgba(0, 0, 0, .5);
+}
+
+/* Kleine Marke für Clique, Rang, Nationalelf – schmaler als .tv-pill. */
+.tv-marke {
+  display: inline-block; padding: 0 5px; border-radius: 2px;
+  font-size: 9.5px; font-weight: 700; line-height: 15px; white-space: nowrap;
+  background: rgba(0, 0, 0, .12); border: 1px solid rgba(0, 0, 0, .22); color: var(--tinte);
+}
+.tv-marke--clique { background: rgba(31, 138, 138, .22); border-color: rgba(31, 138, 138, .5); }
+.tv-marke--mentor { background: rgba(217, 165, 33, .3); border-color: rgba(217, 165, 33, .65); }
+.tv-marke--national { background: rgba(28, 79, 143, .2); border-color: rgba(28, 79, 143, .5); }
+.tv-marke--streit { background: rgba(193, 39, 45, .2); border-color: rgba(193, 39, 45, .55); color: #7a1512; }
+
+/* Das Chemiegitter: jede Verbindung der Elf als ein farbiges Feld.
+   Elf Spieler ergeben 55 Verbindungen – als Liste unlesbar, als Gitter
+   in einem Blick zu erfassen. Waagerecht scrollbar, damit es nichts sprengt. */
+.tv-gitterhuelle { overflow-x: auto; max-width: 100%; }
+.tv-gitter { border-collapse: collapse; font-family: var(--font-num); font-size: 9.5px; }
+.tv-gitter th {
+  font-size: 10px; font-weight: 700; color: var(--tinte-weich);
+  text-align: right; padding: 0 5px; white-space: nowrap;
+}
+.tv-gitter thead th { text-align: center; width: 22px; padding: 0 1px; }
+.tv-gitter td {
+  width: 22px; height: 18px; text-align: center;
+  color: #fff; text-shadow: 1px 1px 0 rgba(0, 0, 0, .5);
+  border: 1px solid rgba(0, 0, 0, .18);
+}
+.tv-gitter td.leer { background: rgba(0, 0, 0, .3); }
+.tv-gitter td.gemischt { box-shadow: inset 0 0 0 1px var(--gold); }
+
+/* Konfliktzeile mit Schweregrad. */
+.tv-streit {
+  padding: 4px 7px; margin-bottom: 4px; font-size: 11.5px; line-height: 1.4;
+  background: rgba(193, 39, 45, .09); border-left: 3px solid var(--rot); border-radius: 2px;
+}
+.tv-streit b { display: block; font-size: 12px; }
+
+/* ---------- Taktikbrett ---------------------------------------------------- */
+
+.tv-taktik { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+@media (max-width: 1250px) { .tv-taktik { grid-template-columns: minmax(0, 1fr); } }
+
+.tv-brett {
+  position: relative;
+  aspect-ratio: 68 / 92;
+  max-height: 640px; margin: 0 auto; width: 100%;
+  background:
+    repeating-linear-gradient(0deg, var(--gruen-600) 0 26px, var(--gruen-500) 26px 52px);
+  border: 3px solid #ecf3ec; border-radius: 3px;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, .35), var(--schatten);
+  overflow: hidden;
+}
+.tv-brett__linie { position: absolute; background: rgba(255, 255, 255, .72); }
+.tv-brett__kreis { position: absolute; border: 2px solid rgba(255, 255, 255, .72); border-radius: 50%; }
+.tv-brett__raum { position: absolute; border: 2px solid rgba(255, 255, 255, .72); }
+
+/* Die Eingespieltheits-Linien zwischen benachbarten Spielern. Liegen unter den
+   Trikots (z-index 3) und über der Feldzeichnung – und bleiben absichtlich dünn. */
+.tv-brett__netz {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  z-index: 2; pointer-events: none; opacity: .85;
+}
+
+.tv-slot {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 62px; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  cursor: grab; z-index: 3;
+}
+.tv-slot.leer .tv-slot__trikot { opacity: .35; border-style: dashed; }
+.tv-slot.ziel .tv-slot__trikot { box-shadow: 0 0 0 3px var(--gold), 0 0 12px var(--gold); }
+.tv-slot.gewaehlt .tv-slot__trikot { box-shadow: 0 0 0 3px #fff, 0 0 14px rgba(255,255,255,.9); }
+.tv-slot__trikot {
+  width: 38px; height: 38px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-num); font-weight: 700; font-size: 15px;
+  border: 2px solid rgba(0, 0, 0, .5);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, .5);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .5);
+}
+.tv-slot__name {
+  font-size: 10px; font-weight: 700; color: #fff;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, .95), -1px -1px 0 rgba(0,0,0,.7);
+  white-space: nowrap; max-width: 74px; overflow: hidden; text-overflow: ellipsis;
+}
+.tv-slot__pos { font-size: 9px; color: #ffe9a8; text-shadow: 1px 1px 0 rgba(0,0,0,.9); font-weight: 700; }
+.tv-slot__warn { position: absolute; top: -5px; right: 2px; font-size: 13px; }
+
+.tv-bank { display: flex; flex-wrap: wrap; gap: 5px; }
+.tv-bank__spieler {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 7px; border-radius: 3px;
+  background: rgba(255, 255, 255, .35); border: 1px solid var(--linie);
+  font-size: 11.5px; cursor: grab;
+}
+
+/* ---------- Spieltag / Livespiel -------------------------------------------- */
+
+.tv-spieltag { display: flex; flex-direction: column; gap: 10px; height: 100%; }
+
+.tv-anzeigetafel {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px;
+  padding: 9px 16px;
+  background: linear-gradient(180deg, #1a1a1a, #000);
+  border: 3px solid var(--holz-700); border-radius: 4px;
+  color: #ffb400; font-family: var(--font-num);
+  box-shadow: inset 0 0 26px rgba(255, 180, 0, .12), var(--schatten);
+}
+.tv-anzeigetafel__team { display: flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 700; letter-spacing: 1px; }
+.tv-anzeigetafel__team--gast { justify-content: flex-end; }
+.tv-anzeigetafel__stand { font-size: 38px; font-weight: 700; letter-spacing: 3px; text-shadow: 0 0 14px rgba(255, 180, 0, .65); }
+.tv-anzeigetafel__uhr { font-size: 15px; text-align: center; color: #fff; letter-spacing: 2px; }
+
+.tv-buehne {
+  position: relative;
+  background: #000; border: 3px solid var(--holz-700); border-radius: 3px;
+  box-shadow: var(--schatten); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 200px;
+}
+/* Das Spielfeld ist eine 1040 × 700 große Leinwand (game/matchday.js). Die
+   Größe steht dort fest und gehört dort auch hin – der Zeichner rechnet in
+   Feldkoordinaten. Skaliert wird deshalb hier: `max-width` und `max-height`
+   zusammen mit `width/height: auto` behalten das Seitenverhältnis bei, und
+   render/pitch.js merkt nichts davon. Auf 768 px Höhe darf das Feld nicht
+   mehr als die halbe Bühne fressen, sonst bleibt für den Ticker nichts. */
+.tv-buehne canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 60vh; }
+
+.tv-ticker {
+  height: 210px; overflow-y: auto;
+  background: rgba(0, 0, 0, .2);
+  border: 1px solid var(--linie);
+  padding: 5px 8px;
+  font-size: 12.5px; line-height: 1.5;
+  scroll-behavior: smooth;
+}
+.tv-ticker__zeile { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dotted rgba(0, 0, 0, .18); }
+.tv-ticker__min { font-family: var(--font-num); font-weight: 700; flex: 0 0 34px; color: var(--tinte-weich); }
+.tv-ticker__text { flex: 1; }
+.tv-ticker__zeile--tor { background: rgba(47, 125, 50, .28); font-weight: 700; font-size: 13.5px; }
+.tv-ticker__zeile--gegentor { background: rgba(193, 39, 45, .22); font-weight: 700; }
+.tv-ticker__zeile--karte { background: rgba(217, 165, 33, .18); }
+.tv-ticker__zeile--wichtig { background: rgba(28, 79, 143, .16); }
+
+.tv-steuerung { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.tv-steuerung .tv-tempo { display: flex; gap: 2px; }
+
+.tv-konferenz { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 6px; }
+.tv-konferenz__spiel {
+  display: grid; grid-template-columns: 1fr 44px 1fr; align-items: center; gap: 5px;
+  padding: 4px 7px; font-size: 11.5px;
+  background: rgba(255, 255, 255, .3); border: 1px solid var(--linie); border-radius: 2px;
+}
+.tv-konferenz__spiel.eigen { background: rgba(217, 165, 33, .38); border-color: var(--gold); font-weight: 700; }
+.tv-konferenz__stand { font-family: var(--font-num); font-weight: 700; text-align: center; }
+.tv-konferenz__gast { text-align: right; }
+
+/* Minispiel-Bühne
+   Die Leinwand ist 960 × 600 (game/matchday.js) bzw. 1040 × 660 (Höhepunkte).
+   Beides passt bei 1024 × 768 nicht mehr hinein. Skaliert wird per CSS, und
+   das ist hier gefahrlos: Alle fünf Minispiele rechnen Zeigerkoordinaten über
+   `getBoundingClientRect()` auf die Leinwandbreite um (z. B. penalty.js:949),
+   sie sind also gegen Skalierung immun. Der Überlagerungsknoten der Bühne
+   liegt auf `inset: 0` und wandert automatisch mit. */
+.tv-minispiel {
+  position: fixed; inset: 0; z-index: 700;
+  background: rgba(0, 0, 0, .88);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 8px;
+}
+.tv-minispiel__buehne {
+  position: relative; box-shadow: 0 0 60px rgba(0, 0, 0, .9); border: 4px solid var(--holz-600);
+  max-width: 100%; min-width: 0;
+}
+.tv-minispiel__buehne canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 78vh; }
+.tv-minispiel__hinweis { color: var(--papier); font-size: 13px; letter-spacing: .6px; text-align: center; max-width: min(900px, 96vw); }
+.tv-minispiel__hinweis b { color: var(--gold-hell); }
+
+/* ---------- Tabelle / Liga -------------------------------------------------- */
+
+.tv-liga tbody tr.platz-meister { box-shadow: inset 4px 0 0 var(--gold); }
+.tv-liga tbody tr.platz-cl { box-shadow: inset 4px 0 0 var(--blau); }
+.tv-liga tbody tr.platz-el { box-shadow: inset 4px 0 0 var(--tuerkis); }
+.tv-liga tbody tr.platz-conf { box-shadow: inset 4px 0 0 #7bc043; }
+.tv-liga tbody tr.platz-relegation { box-shadow: inset 4px 0 0 var(--orange); }
+.tv-liga tbody tr.platz-abstieg { box-shadow: inset 4px 0 0 var(--rot); }
+.tv-liga tbody tr.eigen { background: rgba(217, 165, 33, .3) !important; font-weight: 700; }
+
+.tv-form { display: inline-flex; gap: 2px; }
+.tv-form span {
+  width: 15px; height: 15px; border-radius: 2px;
+  font-size: 9.5px; font-weight: 700; color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.4);
+}
+.tv-form .S { background: var(--gruen-600); }
+.tv-form .U { background: #9a8c6a; }
+.tv-form .N { background: var(--rot); }
+
+/* ---------- Europapokal -------------------------------------------------------
+   Eigene Zonenfarben: In der Ligaphase geht es nicht um Auf- und Abstieg,
+   sondern darum, ob man die Play-off-Runde geschenkt bekommt. Die `platz-*`-
+   Klassen weiter oben bleiben deshalb der Liga vorbehalten. */
+
+.tv-liga tbody tr.euro-direkt { box-shadow: inset 4px 0 0 var(--blau); }
+.tv-liga tbody tr.euro-playoff { box-shadow: inset 4px 0 0 var(--tuerkis); }
+.tv-liga tbody tr.euro-raus { box-shadow: inset 4px 0 0 var(--rot); }
+
+.tv-euro__legende {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--linie);
+}
+.tv-euro__farbe {
+  width: 13px; height: 13px; display: inline-block; border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, .4); background: var(--flaeche-dunkel);
+}
+.tv-euro__farbe.euro-direkt { background: var(--blau); }
+.tv-euro__farbe.euro-playoff { background: var(--tuerkis); }
+.tv-euro__farbe.euro-raus { background: var(--rot); }
+
+.tv-euro__flagge { display: block; border: 1px solid rgba(0, 0, 0, .4); flex: 0 0 auto; }
+
+/* „Ihr Weg" – eine Zeile je Partie. */
+.tv-euro__weg {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; font-size: 12px;
+  background: rgba(255, 255, 255, .26); border: 1px solid var(--linie); border-radius: 2px;
+}
+.tv-euro__weg--offen { background: rgba(255, 255, 255, .12); border-style: dashed; }
+
+/* Der Turnierbaum: je Runde eine Spalte, waagerecht scrollbar. */
+.tv-euro__baum {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(196px, 1fr);
+  gap: 8px; overflow-x: auto; padding-bottom: 4px; align-items: stretch;
+}
+.tv-euro__runde { display: flex; flex-direction: column; gap: 6px; justify-content: space-around; min-width: 0; }
+.tv-euro__rundenkopf {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px; font-weight: 700;
+  color: var(--tinte-weich); border-bottom: 1px solid var(--linie); padding-bottom: 3px;
+}
+.tv-euro__duell {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 6px; border-radius: 2px;
+  background: rgba(255, 255, 255, .3); border: 1px solid var(--linie);
+}
+.tv-euro__duell.eigen { background: rgba(217, 165, 33, .34); border-color: var(--gold); }
+.tv-euro__seite { display: flex; align-items: center; gap: 6px; font-size: 11.5px; min-width: 0; }
+.tv-euro__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-euro__seite.sieger { font-weight: 700; }
+.tv-euro__seite.sieger::after { content: '▶'; font-size: 8px; color: var(--gruen-600); }
+.tv-euro__legs {
+  margin-top: 3px; padding-top: 3px; border-top: 1px dotted rgba(0, 0, 0, .25);
+  font-size: 10.5px; color: var(--tinte-weich);
+}
+.tv-euro__elfer {
+  font-size: 10.5px; font-weight: 700; color: var(--rot); margin-top: 2px;
+}
+
+/* Gegnerporträt */
+.tv-euro__portrait { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.tv-euro__zitat {
+  font-size: 13px; line-height: 1.5;
+  padding: 6px 9px; border-left: 3px solid var(--blau);
+  background: rgba(0, 0, 0, .07);
+}
+.tv-euro__praemie--jetzt { background: rgba(217, 165, 33, .3); font-weight: 700; }
+
+/* Der Hinweis auf die englische Woche – auch auf Büroplan und Vorbericht. */
+.tv-englisch {
+  display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline;
+  padding: 6px 9px; font-size: 12px; line-height: 1.4;
+  background: rgba(224, 123, 25, .22);
+  border: 1px solid var(--orange); border-left-width: 5px; border-radius: 2px;
+}
+.tv-englisch b { letter-spacing: .3px; }
+
+/* ---------- Transfermarkt ---------------------------------------------------- */
+
+.tv-transfer { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
+@media (max-width: 1250px) { .tv-transfer { grid-template-columns: minmax(0, 1fr); } }
+.tv-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; background: rgba(0,0,0,.08); border-bottom: 1px solid var(--linie); }
+.tv-filter select, .tv-filter input {
+  padding: 3px 6px; border: 1px solid var(--linie); border-radius: 2px;
+  background: var(--papier); font-size: 11.5px;
+}
+.tv-verhandlung { display: flex; flex-direction: column; gap: 8px; }
+.tv-verhandlung__stimmung { height: 18px; border-radius: 9px; overflow: hidden; border: 1px solid rgba(0,0,0,.35); background: linear-gradient(90deg, var(--rot), var(--gold), var(--gruen-500)); position: relative; }
+.tv-verhandlung__zeiger { position: absolute; top: -2px; width: 4px; height: 22px; background: #fff; box-shadow: 0 0 5px #000; transition: left .3s ease; }
+
+/* ---------- Finanzen ---------------------------------------------------------- */
+
+.tv-bilanz { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tv-bilanz__zeile { display: flex; justify-content: space-between; gap: 4px 8px; flex-wrap: wrap; padding: 2px 0; border-bottom: 1px dotted rgba(0,0,0,.18); font-size: 12.5px; }
+.tv-bilanz__zeile b { font-family: var(--font-num); }
+.tv-bilanz__summe { border-top: 2px solid var(--tinte); border-bottom: none; margin-top: 4px; padding-top: 5px; font-weight: 700; font-size: 14px; }
+.tv-chart { width: 100%; height: 160px; display: block; background: rgba(0,0,0,.14); border: 1px solid var(--linie); }
+
+/* ---------- Stadion ------------------------------------------------------------ */
+
+.tv-stadion__view { width: 100%; height: 260px; display: block; background: linear-gradient(180deg, #86b7dd, #cfe4f2); border: 1px solid var(--linie); }
+/* `.tv-rang` selbst steht einmal, oben im Kabinen-Abschnitt – dort auch die
+   Begründung für `flex-wrap`: `screens/stadion.js` gibt der Beschriftung per
+   Inlinestil 92 px Mindestbreite, in einer 134 px breiten Seitenspalte passt
+   daneben keine Zahl mehr, und ohne Umbruch lief die Zeile aus dem Panel.
+   Hier steht nur noch, was allein das Stadion braucht: der Balken. */
+.tv-rang__balken { flex: 1 1 60px; height: 14px; background: rgba(0,0,0,.2); border-radius: 2px; overflow: hidden; }
+.tv-rang__balken div { height: 100%; background: linear-gradient(90deg, var(--gruen-600), var(--gruen-400)); }
+
+/* ---------- Training ------------------------------------------------------------ */
+
+.tv-wochenplan { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.tv-wochenplan__tag {
+  background: rgba(255, 255, 255, .3); border: 1px solid var(--linie); border-radius: 2px;
+  padding: 5px; min-height: 92px; font-size: 11px; display: flex; flex-direction: column; gap: 3px;
+}
+.tv-wochenplan__tag b { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--tinte-weich); }
+.tv-wochenplan__tag.spieltag { background: rgba(193, 39, 45, .22); border-color: var(--rot); }
+.tv-einheit {
+  padding: 2px 5px; border-radius: 2px; font-size: 10.5px; font-weight: 600;
+  background: var(--blau); color: #fff; cursor: pointer;
+}
+.tv-einheit--kondition { background: var(--rot); }
+.tv-einheit--technik { background: var(--gruen-600); }
+.tv-einheit--taktik { background: var(--blau); }
+.tv-einheit--standards { background: var(--gold); color: var(--holz-900); }
+.tv-einheit--regeneration { background: var(--tuerkis); }
+.tv-einheit--frei { background: var(--flaeche-dunkel); color: var(--tinte); }
+
+.tv-entwicklung { font-family: var(--font-num); font-size: 11px; }
+.tv-entwicklung.plus::before { content: '▲ '; color: var(--gruen-600); }
+.tv-entwicklung.minus::before { content: '▼ '; color: var(--rot); }
+
+/* ---------- Übungsplatz (Minispiele ohne Ernstfall) ------------------------------ */
+
+.tv-uebung { display: grid; grid-template-columns: repeat(auto-fit, minmax(228px, 1fr)); gap: 8px; }
+.tv-uebung__karte {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 8px; border-radius: 2px;
+  background: rgba(255, 255, 255, .3); border: 1px solid var(--linie);
+}
+.tv-uebung__kopf {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; border-bottom: 1px solid var(--linie); padding-bottom: 4px;
+}
+.tv-uebung__steuerung {
+  font-size: 10.5px; line-height: 1.4; color: var(--tinte-weich);
+  background: rgba(0, 0, 0, .07); border-left: 3px solid var(--blau);
+  padding: 4px 6px; border-radius: 2px;
+}
+.tv-uebung__stat {
+  margin-top: auto; padding-top: 4px;
+  font-family: var(--font-num); font-size: 11.5px; line-height: 1.4;
+  border-top: 1px dotted rgba(0, 0, 0, .25);
+}
+
+/* ---------- Presse -------------------------------------------------------------- */
+
+.tv-zeitung {
+  background: linear-gradient(180deg, #fdf8ea, #efe4c8);
+  padding: 14px 18px;
+  border: 1px solid var(--linie);
+  box-shadow: var(--schatten);
+  column-gap: 18px;
+}
+.tv-zeitung__kopf {
+  font-family: var(--font-titel); font-size: 30px; letter-spacing: 2px; text-align: center;
+  border-bottom: 3px double var(--tinte); padding-bottom: 5px; margin-bottom: 9px;
+}
+.tv-zeitung__schlagzeile { font-family: var(--font-titel); font-size: 21px; line-height: 1.1; margin: 9px 0 4px; letter-spacing: .5px; }
+.tv-zeitung__text { font-size: 12.5px; line-height: 1.5; text-align: justify; }
+.tv-zeitung__meta { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--tinte-weich); }
+
+.tv-interview__frage { font-size: 13.5px; font-weight: 600; margin-bottom: 9px; line-height: 1.45; }
+.tv-interview__antwort {
+  display: block; width: 100%; text-align: left; margin-bottom: 5px;
+  padding: 7px 10px; font-size: 12.5px; line-height: 1.35;
+  background: rgba(255, 255, 255, .4); border: 1px solid var(--linie); border-radius: 2px; cursor: pointer;
+}
+.tv-interview__antwort:hover { background: rgba(255, 245, 200, .8); }
+
+/* ---------- Jugend / Medizin / Stab ---------------------------------------------- */
+
+.tv-talent { display: flex; align-items: center; gap: 9px; padding: 6px; border-bottom: 1px solid rgba(0,0,0,.14); }
+.tv-sterne { color: var(--gold); font-size: 13px; letter-spacing: 1px; text-shadow: 1px 1px 0 rgba(0,0,0,.35); }
+.tv-lazarett__zeile { display: grid; grid-template-columns: 1fr 130px 90px 90px; align-items: center; gap: 8px; padding: 5px; border-bottom: 1px solid rgba(0,0,0,.14); font-size: 12px; }
+.tv-stab__karte { display: flex; gap: 9px; padding: 8px; background: rgba(255,255,255,.3); border: 1px solid var(--linie); border-radius: 2px; }
+
+/* ---------- Saisonabschluss ------------------------------------------------------
+   Ein Rückblick, kein Arbeitsbildschirm: großzügiger, feierlicher, mit Gold.
+   Die Zonenfarben der Abschlusstabelle kommen aus `.tv-liga` weiter oben. */
+
+.tv-saison { gap: 12px; }
+.tv-saison__kopf { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.tv-saison__kopfText { min-width: 0; flex: 1; }
+.tv-saison__jahr {
+  font-size: 11px; letter-spacing: 4px; text-transform: uppercase;
+  color: var(--tinte-weich);
+}
+.tv-saison__titel {
+  margin: 2px 0 0; font-family: var(--font-titel);
+  font-size: clamp(24px, 3.6vw, 40px); letter-spacing: 1.5px; line-height: 1.02;
+  text-shadow: 2px 2px 0 rgba(217, 165, 33, .55);
+}
+.tv-saison__unter { font-size: 13px; color: var(--tinte-weich); margin-top: 5px; }
+
+.tv-saison__wechsel {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 7px; border-radius: 2px;
+  background: rgba(255, 255, 255, .3); border: 1px solid var(--linie);
+}
+.tv-saison__wechsel--auf { box-shadow: inset 4px 0 0 var(--gruen-600); }
+.tv-saison__wechsel--ab { box-shadow: inset 4px 0 0 var(--rot); }
+.tv-saison__pfeil { font-size: 14px; width: 14px; text-align: center; }
+.tv-saison__wechsel--auf .tv-saison__pfeil { color: var(--gruen-600); }
+.tv-saison__wechsel--ab .tv-saison__pfeil { color: var(--rot); }
+
+.tv-saison__duell {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; font-size: 12px;
+  background: rgba(255, 255, 255, .24); border: 1px solid var(--linie); border-radius: 2px;
+}
+
+.tv-saison__krone { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.tv-saison__kroneZahl {
+  font-family: var(--font-titel); font-size: 68px; line-height: .9;
+  color: var(--gold); text-shadow: 3px 3px 0 rgba(0, 0, 0, .35);
+  margin-left: auto; padding-right: 6px;
+}
+
+.tv-saison__elf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .tv-saison__elf { grid-template-columns: minmax(0, 1fr); } }
+.tv-saison__brett { max-width: 500px; max-height: 660px; }
+.tv-saison__foto { width: 100%; height: 100%; display: block; border-radius: 2px; object-fit: cover; }
+.tv-saison__note {
+  position: absolute; right: -8px; bottom: -6px;
+  min-width: 26px; padding: 0 3px; border-radius: 3px;
+  font-family: var(--font-num); font-size: 10px; font-weight: 700; text-align: center;
+  color: #fff; background: var(--blau);
+  border: 1px solid rgba(0, 0, 0, .55); text-shadow: 1px 1px 0 rgba(0, 0, 0, .6);
+}
+.tv-saison__stern { position: absolute; left: -6px; top: -6px; font-size: 11px; text-shadow: 0 0 4px rgba(0, 0, 0, .9); }
+.tv-saison__slot--legende .tv-slot__trikot { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 2px 5px rgba(0, 0, 0, .6); }
+.tv-saison__slot--legende .tv-slot__name { color: var(--gold-hell); }
+.tv-saison__slot--eigen .tv-slot__trikot { outline: 2px dashed #fff; outline-offset: 2px; }
+
+.tv-saison__abschied {
+  display: flex; gap: 11px; align-items: flex-start;
+  padding: 8px; border-radius: 2px;
+  background: rgba(255, 255, 255, .3); border: 1px solid var(--linie);
+}
+.tv-saison__abschied--legende {
+  background: linear-gradient(90deg, rgba(217, 165, 33, .3), rgba(255, 255, 255, .28) 68%);
+  border-color: var(--gold); box-shadow: inset 4px 0 0 var(--gold);
+}
+.tv-saison__nachruf { font-size: 12px; line-height: 1.45; margin-top: 5px; font-style: italic; }
+.tv-saison__talente { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 5px; }
+
+.tv-saison__urteil {
+  display: flex; gap: 12px; align-items: center;
+  padding: 10px; border-radius: 2px;
+  background: rgba(255, 255, 255, .32); border: 2px solid var(--linie);
+}
+.tv-saison__urteil--entlassen { border-color: var(--rot); background: rgba(193, 39, 45, .18); }
+.tv-saison__urteilNote {
+  width: 56px; height: 56px; flex: 0 0 56px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 50%; color: #fff; background: var(--blau);
+  font-family: var(--font-num); border: 2px solid rgba(0, 0, 0, .4);
+  box-shadow: inset 0 -3px 6px rgba(0, 0, 0, .3);
+}
+.tv-saison__urteil--entlassen .tv-saison__urteilNote { background: var(--rot); }
+.tv-saison__urteilNote b { font-size: 24px; line-height: 1; }
+.tv-saison__urteilNote small { font-size: 8px; letter-spacing: 1px; }
+.tv-saison__urteilText { font-size: 12.5px; line-height: 1.45; margin-top: 4px; }
+
+.tv-saison__entlassung {
+  margin-top: 8px; padding: 12px 14px; text-align: center;
+  background: repeating-linear-gradient(45deg, rgba(193, 39, 45, .9) 0 14px, rgba(140, 20, 26, .9) 14px 28px);
+  color: #fff; border: 3px solid #6d0f14; border-radius: 3px;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, .7); font-size: 12.5px; line-height: 1.45;
+}
+.tv-saison__entlassungTitel {
+  font-family: var(--font-titel); font-size: clamp(22px, 4vw, 38px);
+  letter-spacing: 4px; margin-bottom: 5px;
+}
+
+.tv-saison__abschluss {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 4px; padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(217, 165, 33, .3), rgba(0, 0, 0, .16));
+  border: 2px solid var(--gold); border-radius: 3px; box-shadow: var(--schatten);
+}
+
+/* ---------- Spielerzustände außerhalb von Tabellenzeilen -------------------------
+   styles/main.css kennt nur `tr.zeile--legende` & Co. Karten und Listen (div.tv-talent,
+   .tv-lazarett__zeile, .tv-spielerkarte) tragen dieselben Klassen, gingen dort aber leer
+   aus – Legenden blieben ungoldig. Die tr-Regeln sind spezifischer und bleiben unberührt. */
+
+.zeile--legende {
+  background: linear-gradient(90deg, rgba(217, 165, 33, .26), transparent 62%);
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+.zeile--verletzt { color: #8b2020; }
+.zeile--gesperrt { color: #6b4f00; font-style: italic; }
+.zeile--jugend { color: #1c5f5f; }
+
+/* ---------- Einstellungen (Schalterkasten) -------------------------------- */
+
+.tv-einstellungen {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px; align-items: start;
+}
+
+/* Eine Schalterzeile: links Name und Erklärung, rechts das Bedienelement. */
+.tv-opt {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px; align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, .12);
+}
+.tv-opt:last-child { border-bottom: 0; }
+label.tv-opt { cursor: pointer; }
+label.tv-opt:hover { background: rgba(255, 245, 200, .45); }
+.tv-opt--aus { opacity: .45; cursor: default; }
+.tv-opt--aus:hover { background: none; }
+.tv-opt__text { min-width: 0; }
+.tv-opt__name { font-size: 12.5px; font-weight: 700; }
+.tv-opt__hilfe { font-size: 10.5px; color: var(--tinte-weich); line-height: 1.35; margin-top: 2px; }
+.tv-opt__steuer { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+.tv-opt__steuer select { padding: 3px 5px; font-size: 11.5px; max-width: 190px; }
+.tv-opt__steuer input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--gruen-600); cursor: pointer; }
+
+.tv-klangprobe { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.tv-tonstatus {
+  font-size: 11px; line-height: 1.4;
+  padding: 5px 7px; margin-top: 2px;
+  background: rgba(0, 0, 0, .12); border-left: 3px solid var(--gruen-600);
+}
+.tv-tonstatus--warn { border-left-color: var(--rot); color: #7a1a1e; font-weight: 600; }
+
+/* Tastentabelle – im Einstellungsbildschirm und überall, wo Kürzel erklärt werden. */
+.tv-tasten { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 8px; align-items: center; font-size: 11.5px; }
+.tv-tasten__zeile { display: contents; }
+.tv-taste {
+  display: inline-block; min-width: 22px; padding: 1px 6px;
+  font-family: var(--font-num); font-size: 11px; font-weight: 700; text-align: center;
+  color: var(--tinte); background: linear-gradient(180deg, #fffbf0, var(--papier-dunkel));
+  border: 1px solid var(--linie); border-bottom-width: 3px; border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .25);
+}
+
+/* Kürzel in der Aktenleiste. Steht rechts, hinter dem Postfach-Abzeichen. */
+.tv-nav__taste {
+  margin-left: auto;
+  font-family: var(--font-num); font-size: 9.5px; font-weight: 700;
+  color: var(--tinte-weich); background: rgba(0, 0, 0, .1);
+  border: 1px solid rgba(0, 0, 0, .22); border-radius: 3px;
+  padding: 0 4px; line-height: 15px;
+}
+.tv-nav__btn.aktiv .tv-nav__taste { color: var(--rot); border-color: rgba(193, 39, 45, .5); }
+
+@media (max-width: 1100px) {
+  .tv-einstellungen { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- Chronik (Roadmap-Stufe 6) --------------------------------------------
+   Ein Archivbildschirm: Papier, Messing, Gold. Kein Arbeitsgerät, sondern der
+   Schrank, in dem alles liegt, was schon passiert ist. Die Zeitungsklassen weiter
+   unten bauen auf dem `.tv-zeitung`-Block im Presse-Abschnitt auf. */
+
+.tv-chronik { gap: 12px; }
+
+.tv-chronik__wappen { display: inline-flex; align-items: center; justify-content: center; }
+
+.tv-chronik__marke { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.tv-chronik__marke > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-chronik__marke.eigen > span { font-weight: 700; color: var(--holz-900); }
+
+.tv-chronik__fussnote {
+  font-size: 10.5px; line-height: 1.45; color: var(--tinte-weich);
+  background: rgba(0, 0, 0, .07); border-left: 3px solid var(--linie);
+  padding: 5px 8px; border-radius: 0 2px 2px 0;
+}
+
+.tv-chronik__stoerung {
+  font-size: 12px; line-height: 1.45; padding: 8px 10px;
+  background: rgba(193, 39, 45, .14); border-left: 3px solid var(--rot);
+}
+
+.tv-chronik__titelchen { font-family: var(--font-num); font-size: 10.5px; white-space: nowrap; }
+
+/* Eigener Verein in jeder Chroniktabelle – `.tv-liga` gilt hier nicht. */
+.tv-chronik .tv-tabelle tbody tr.eigen {
+  background: rgba(217, 165, 33, .3) !important;
+  font-weight: 700;
+  box-shadow: inset 4px 0 0 var(--gold);
+}
+
+/* ---- Titelchronik als Zeitleiste ---- */
+
+.tv-chronik__zeitleiste {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px;
+}
+.tv-chronik__jahr {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 11px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .38), rgba(255, 255, 255, .18));
+  border: 1px solid var(--linie); border-left: 4px solid var(--holz-600);
+  border-radius: 2px;
+}
+.tv-chronik__jahr--eigen {
+  border-left-color: var(--gold);
+  background: linear-gradient(180deg, rgba(255, 248, 220, .72), rgba(240, 220, 160, .38));
+  box-shadow: 0 0 8px rgba(217, 165, 33, .3);
+}
+.tv-chronik__jahrKopf {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  border-bottom: 2px solid rgba(0, 0, 0, .22); padding-bottom: 4px; margin-bottom: 3px;
+}
+.tv-chronik__jahrNr { font-family: var(--font-titel); font-size: 17px; letter-spacing: .8px; }
+.tv-chronik__jahrJahr { font-family: var(--font-num); font-size: 12px; color: var(--tinte-weich); }
+.tv-chronik__jahrPlatz { margin-left: auto; font-size: 10.5px; color: var(--tinte-weich); }
+.tv-chronik__jahrText {
+  margin-top: 5px; padding-top: 5px; border-top: 1px dotted rgba(0, 0, 0, .22);
+  font-size: 11.5px; line-height: 1.45; font-style: italic; color: var(--tinte-weich);
+}
+
+.tv-chronik__zeile { display: flex; align-items: flex-start; gap: 8px; padding: 2px 0; font-size: 12px; }
+.tv-chronik__zeile--gold { background: rgba(217, 165, 33, .22); border-radius: 2px; padding: 3px 4px; }
+.tv-chronik__etikett {
+  flex: 0 0 108px; font-size: 10px; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--tinte-weich); padding-top: 3px;
+}
+.tv-chronik__wert { flex: 1; min-width: 0; }
+
+/* ---- Rekordbuch ---- */
+
+.tv-chronik__rekorde {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 8px;
+}
+.tv-chronik__rekord {
+  padding: 9px 11px; border-radius: 2px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, .14));
+  border: 1px solid var(--linie); border-top: 3px solid var(--holz-600);
+}
+.tv-chronik__rekord--gold {
+  border-top-color: var(--gold);
+  background: linear-gradient(180deg, rgba(255, 248, 220, .68), rgba(240, 220, 160, .34));
+}
+.tv-chronik__rekordTitel {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--tinte-weich);
+}
+.tv-chronik__rekordWert {
+  font-family: var(--font-titel); font-size: 21px; line-height: 1.1; letter-spacing: .5px;
+  margin: 3px 0 2px; word-break: break-word;
+}
+.tv-chronik__rekordSub { font-size: 11px; line-height: 1.35; color: var(--tinte-weich); }
+
+.tv-chronik__listenZeile {
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 4px; border-bottom: 1px dotted rgba(0, 0, 0, .16); font-size: 12px;
+}
+.tv-chronik__listenRang {
+  flex: 0 0 22px; text-align: right; font-family: var(--font-num);
+  font-size: 11px; color: var(--tinte-weich);
+}
+.tv-chronik__listenName { flex: 1; min-width: 0; line-height: 1.15; }
+.tv-chronik__listenName b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-chronik__stern { color: var(--gold); font-size: 13px; text-shadow: 1px 1px 0 rgba(0, 0, 0, .35); }
+
+/* ---- Ruhmeshalle ---- */
+
+.tv-chronik__halle {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 9px;
+}
+.tv-chronik__karte {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 9px; border-radius: 3px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, .14));
+  border: 1px solid var(--linie);
+}
+.tv-chronik__karte--legende {
+  background: linear-gradient(180deg, rgba(255, 248, 220, .78), rgba(240, 220, 160, .5));
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 9px rgba(217, 165, 33, .35), 0 2px 5px rgba(0, 0, 0, .3);
+}
+.tv-chronik__zahlen {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px;
+  padding: 5px 0; border-top: 1px dotted rgba(0, 0, 0, .22); border-bottom: 1px dotted rgba(0, 0, 0, .22);
+}
+.tv-chronik__zahl { text-align: center; line-height: 1.15; }
+.tv-chronik__zahl b { display: block; font-family: var(--font-num); font-size: 14px; }
+.tv-chronik__zahl span { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--tinte-weich); }
+.tv-chronik__nachruf {
+  font-size: 11.5px; line-height: 1.5; font-style: italic; color: var(--tinte-weich);
+  white-space: pre-wrap; max-height: 132px; overflow-y: auto;
+}
+
+/* ---- Meine Laufbahn ---- */
+
+.tv-chronik__kurveBox { display: flex; flex-direction: column; gap: 5px; }
+.tv-chronik__kurve {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--linie); border-radius: 2px; background: #f4ecd6;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .22);
+}
+.tv-chronik__kurveLegende {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  font-size: 10.5px; color: var(--tinte-weich);
+}
+
+.tv-chronik__netzBox { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.tv-chronik__netz {
+  display: block; width: 200px; max-width: 100%; height: auto;
+  border: 1px solid var(--linie); border-radius: 2px; background: #f4ecd6;
+}
+
+.tv-chronik__station {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 8px; border-radius: 2px;
+  background: rgba(255, 255, 255, .26); border: 1px solid var(--linie);
+  border-left: 4px solid var(--holz-600);
+}
+.tv-chronik__station--jetzt {
+  border-left-color: var(--gruen-600);
+  background: linear-gradient(90deg, rgba(61, 148, 64, .2), rgba(255, 255, 255, .26));
+}
+.tv-chronik__stationEnde { text-align: right; min-width: 0; max-width: 46%; }
+.tv-chronik__stationEnde .tv-mini { line-height: 1.3; }
+
+.tv-chronik__titelZeile {
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 0; border-bottom: 1px dotted rgba(0, 0, 0, .16); font-size: 12px;
+}
+
+/* ---- Kiosk: die Ausgabenleiste über der Zeitung ---- */
+
+.tv-chronik__ausgaben { display: flex; gap: 6px; flex-wrap: wrap; }
+.tv-chronik__ausgabe {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 5px 10px; cursor: pointer; text-align: left;
+  background: linear-gradient(180deg, var(--flaeche-hell), var(--flaeche));
+  border: 2px solid transparent; border-radius: 2px;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .3);
+  font-family: var(--font-num); font-size: 12px; color: var(--tinte);
+}
+.tv-chronik__ausgabe:hover { filter: brightness(1.07); }
+.tv-chronik__ausgabe.aktiv { border-color: var(--rot); box-shadow: 0 0 8px rgba(193, 39, 45, .6); }
+
+/* ---- Der Saisonrückblick im Blattlayout ---- */
+
+.tv-zeitung--blatt { padding: 16px 22px; }
+.tv-zeitung__zeile {
+  display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--tinte-weich);
+  border-bottom: 1px solid var(--tinte); padding-bottom: 5px; margin-bottom: 10px;
+}
+.tv-zeitung__aufmacher { margin-bottom: 12px; }
+.tv-zeitung__aufmacher .tv-zeitung__schlagzeile {
+  font-size: clamp(22px, 3.4vw, 36px); text-align: center; margin: 2px 0 5px;
+}
+.tv-zeitung__aufmacher .tv-zeitung__meta { text-align: center; margin-bottom: 9px; }
+.tv-zeitung__spalten {
+  column-count: 2; column-gap: 22px; column-rule: 1px solid rgba(0, 0, 0, .22);
+}
+.tv-zeitung__spalten p { margin: 0 0 8px; break-inside: avoid; }
+.tv-zeitung__spalten p:first-child::first-letter {
+  float: left; font-family: var(--font-titel); font-size: 40px; line-height: .82;
+  padding: 3px 6px 0 0; color: var(--rot);
+}
+.tv-zeitung__unterbau {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 14px;
+  border-top: 3px double var(--tinte); padding-top: 10px;
+}
+.tv-zeitung__kasten {
+  padding: 8px 10px; border: 1px solid var(--linie); border-radius: 2px;
+  background: rgba(255, 255, 255, .42);
+}
+.tv-zeitung__kastenTitel {
+  font-family: var(--font-titel); font-size: 15px; letter-spacing: .6px;
+  border-bottom: 1px solid var(--tinte); padding-bottom: 3px; margin-bottom: 5px;
+}
+.tv-zeitung__elfZeile {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; padding: 2px 3px; border-bottom: 1px dotted rgba(0, 0, 0, .16);
+}
+.tv-zeitung__elfZeile.eigen { background: rgba(217, 165, 33, .3); font-weight: 600; }
+.tv-zeitung__elfPos {
+  flex: 0 0 30px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--tinte-weich);
+}
+.tv-zeitung__elfName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-zeitung__fuss {
+  margin-top: 5px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, .22);
+  font-size: 11px; font-style: italic; color: var(--tinte-weich);
+}
+.tv-zeitung__notiz {
+  font-size: 11.5px; line-height: 1.5; text-align: justify;
+  padding: 3px 0; border-bottom: 1px dotted rgba(0, 0, 0, .14);
+}
+.tv-zeitung__notiz:last-child { border-bottom: 0; }
+.tv-zeitung__stempel {
+  margin-top: 10px; padding: 5px 8px;
+  font-size: 10.5px; line-height: 1.4; color: #7a1a1e;
+  border: 2px dashed rgba(193, 39, 45, .6); border-radius: 2px;
+  transform: rotate(-.4deg);
+}
+
+/* Zielbild ist ein 10-Zoll-Tablet im Querformat: Ab hier wird einspaltig
+   gesetzt, statt Buchstaben in 90 Pixel breite Spalten zu quetschen. */
+@media (max-width: 1100px) {
+  .tv-zeitung__spalten { column-count: 1; }
+  .tv-zeitung__unterbau { grid-template-columns: minmax(0, 1fr); }
+  .tv-chronik__zahlen { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* ---------- Editor (Roadmap-Stufe 6, Punkt 5) ------------------------------
+   Die Werkstatt hinter dem Schalter. Bewusst nüchterner als der Rest des
+   Spiels: kein Filz, kein Messing, keine Goldkante um jeden Kasten. Wer hier
+   ist, arbeitet an den Daten und nicht am Verein – das soll man sehen.
+   Einzige Ausnahme ist das Warnband ganz oben; es darf laut sein. */
+
+.tv-editor { display: flex; flex-direction: column; gap: 10px; }
+
+.tv-editor__kopf {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 14px; padding: 8px 11px; line-height: 1.45;
+  background: repeating-linear-gradient(45deg,
+    rgba(217, 165, 33, .20) 0 11px, rgba(217, 165, 33, .07) 11px 22px);
+  border: 2px solid var(--gold); border-left-width: 6px;
+}
+.tv-editor__kopf .tv-mini { line-height: 1.45; }
+
+/* Werkbank: links die Liste, rechts das Formular. Die Liste ist schmal und
+   bleibt es – sie ist ein Register, kein Bildschirm. */
+.tv-editor__werkbank {
+  display: grid; grid-template-columns: 286px minmax(0, 1fr);
+  gap: 10px; align-items: start;
+}
+
+.tv-editor__liste {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 7px; min-width: 0;
+  background: var(--flaeche); border: 1px solid var(--linie);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, .35);
+}
+.tv-editor__suche { display: flex; flex-direction: column; gap: 4px; }
+
+.tv-editor__rollen {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 58vh; overflow-y: auto; overflow-x: hidden;
+  border-top: 1px solid var(--linie); border-bottom: 1px solid var(--linie);
+  padding: 3px 0;
+}
+
+.tv-editor__eintrag {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; min-width: 0; padding: 4px 6px;
+  text-align: left; font-size: 12px; color: var(--tinte);
+  background: transparent; border: 1px solid transparent; cursor: pointer;
+}
+.tv-editor__eintrag:hover { background: rgba(255, 245, 200, .55); border-color: var(--linie); }
+.tv-editor__eintrag.aktiv {
+  background: rgba(217, 165, 33, .38);
+  border-color: var(--linie); box-shadow: inset 3px 0 0 var(--rot);
+}
+.tv-editor__eintrag-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tv-editor__eintrag-titel {
+  font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tv-editor__eintrag-unter {
+  font-size: 10px; color: var(--tinte-weich);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tv-editor__wappen { flex: 0 0 26px; width: 26px; height: 26px; image-rendering: auto; }
+.tv-editor__nummer {
+  flex: 0 0 24px; text-align: center;
+  font-family: var(--font-num); font-size: 12px; font-weight: 700; color: var(--tinte-weich);
+}
+.tv-editor__staerke {
+  flex: 0 0 26px; text-align: center;
+  font-family: var(--font-num); font-size: 13px; font-weight: 700;
+}
+
+/* Der Platz rechts. Ohne Auswahl steht hier nur die Aufforderung. */
+.tv-editor__platz { min-width: 0; }
+
+.tv-editor__form { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+
+.tv-editor__formkopf {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: linear-gradient(180deg, #f5ecd4, var(--papier-dunkel));
+  border: 1px solid var(--linie);
+}
+.tv-editor__formtitel {
+  margin: 0; font-family: var(--font-titel); font-size: 21px; letter-spacing: .8px; line-height: 1.1;
+}
+
+.tv-editor__vorschau { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.tv-editor__vorschau-teil {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.tv-editor__leinwand {
+  display: block; background: rgba(0, 0, 0, .16);
+  border: 1px solid var(--linie); box-shadow: inset 0 0 12px rgba(0, 0, 0, .3);
+}
+.tv-editor__ovr {
+  display: flex; align-items: center; justify-content: center;
+  width: 54px; height: 54px;
+  font-family: var(--font-num); font-size: 25px; font-weight: 700;
+  border: 2px solid var(--linie); background: rgba(255, 255, 255, .3);
+}
+
+/* ---- Felder ---- */
+
+.tv-editor__gitter {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+  gap: 7px 10px;
+}
+.tv-editor__feld { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tv-editor__feld-name {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase;
+  color: var(--tinte-weich);
+}
+.tv-editor__feld-hilfe { font-size: 10px; line-height: 1.35; color: var(--tinte-weich); }
+
+.tv-editor__eingabe {
+  min-width: 0; width: 100%; padding: 3px 6px;
+  font-size: 12px; color: var(--tinte);
+  background: var(--papier); border: 1px solid var(--linie); border-radius: 0;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, .18);
+}
+.tv-editor__eingabe:focus { outline: 2px solid var(--gruen-600); outline-offset: 1px; }
+.tv-editor__eingabe--zahl { font-family: var(--font-num); max-width: 96px; text-align: right; }
+.tv-editor__eingabe--hex { font-family: var(--font-num); max-width: 90px; }
+.tv-editor__eingabe[type=file] { padding: 2px; font-size: 11px; box-shadow: none; }
+
+.tv-editor__farbe { display: flex; align-items: center; gap: 5px; }
+.tv-editor__farbwahl {
+  flex: 0 0 34px; width: 34px; height: 24px; padding: 0;
+  background: none; border: 1px solid var(--linie); cursor: pointer;
+}
+.tv-editor__haken {
+  width: 17px; height: 17px; accent-color: var(--gruen-600); cursor: pointer;
+}
+
+/* Nebenpositionen und Eigenschaften als Häkchenfeld. */
+.tv-editor__merkmale {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 2px 8px;
+}
+.tv-editor__merkmal {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11.5px; padding: 1px 3px; cursor: pointer; min-width: 0;
+}
+.tv-editor__merkmal:hover { background: rgba(255, 245, 200, .5); }
+.tv-editor__merkmal > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Attributgitter: Name, Schieber, Zahl ---- */
+
+.tv-editor__attr { display: flex; flex-direction: column; gap: 2px; }
+.tv-editor__attr-zeile {
+  display: grid; grid-template-columns: 124px minmax(60px, 1fr) 62px;
+  gap: 8px; align-items: center;
+}
+.tv-editor__attr-name { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-editor__regler { width: 100%; accent-color: var(--gruen-600); }
+
+/* ---- Leiste am Fuß des Formulars ---- */
+
+.tv-editor__leiste {
+  position: sticky; bottom: 0; z-index: 2;
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 7px 9px;
+  background: linear-gradient(180deg, var(--papier-dunkel), var(--papier-tief));
+  border: 1px solid var(--linie); box-shadow: 0 -2px 6px rgba(0, 0, 0, .22);
+}
+.tv-editor__spacer { flex: 1; min-width: 8px; }
+.tv-editor__marke {
+  font-size: 11px; font-weight: 700; color: var(--rot); white-space: nowrap;
+}
+
+/* ---- Meldungen ---- */
+
+.tv-editor__warnung {
+  font-size: 11.5px; line-height: 1.45; padding: 5px 8px;
+  background: rgba(0, 0, 0, .09); border-left: 3px solid var(--gruen-600);
+}
+.tv-editor__warnung--rot {
+  background: rgba(193, 39, 45, .14); border-left-color: var(--rot); color: #7a1a1e; font-weight: 600;
+}
+.tv-editor__gruende { margin: 4px 0 0 18px; padding: 0; font-size: 12px; line-height: 1.5; }
+
+/* ---- Austausch ---- */
+
+.tv-editor__austausch {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px; align-items: start;
+}
+.tv-editor__zettel {
+  width: 100%; min-height: 84px; padding: 5px 7px;
+  font-family: var(--font-num); font-size: 11px; line-height: 1.4; color: var(--tinte);
+  background: var(--papier); border: 1px solid var(--linie);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, .18); resize: vertical;
+}
+.tv-editor__protokoll {
+  max-height: 260px; overflow-y: auto;
+  border: 1px solid var(--linie); background: rgba(0, 0, 0, .07);
+}
+.tv-editor__protokoll-kopf {
+  position: sticky; top: 0;
+  padding: 5px 8px; font-size: 11.5px; font-weight: 700;
+  background: var(--gruen-700); color: var(--papier);
+}
+.tv-editor__protokoll-kopf--rot { background: var(--rot); }
+.tv-editor__protokoll-zeile {
+  padding: 3px 8px; font-size: 11px; line-height: 1.4;
+  border-bottom: 1px dotted rgba(0, 0, 0, .16);
+}
+.tv-editor__protokoll-zeile:last-child { border-bottom: 0; }
+
+/* Zielbild bleibt das 10-Zoll-Tablet im Querformat: Unterhalb von 1100 px
+   verliert die Werkbank ihre zweite Spalte, und das Register wandert über
+   das Formular. Die Attributzeile gibt zuerst die Namensspalte auf – der
+   Schieber ist wichtiger als das ausgeschriebene „Strafraumbeherrschung". */
+@media (max-width: 1100px) {
+  .tv-editor__austausch { grid-template-columns: minmax(0, 1fr); }
+  .tv-editor__attr-zeile { grid-template-columns: 100px minmax(50px, 1fr) 58px; gap: 6px; }
+}
+@media (max-width: 900px) {
+  .tv-editor__werkbank { grid-template-columns: minmax(0, 1fr); }
+  .tv-editor__rollen { max-height: 34vh; }
+  .tv-editor__kopf { flex-direction: column; gap: 6px; }
+  .tv-editor__gitter { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+
+/* ==========================================================================
+   KLEINERE BILDSCHIRME – die Bildschirmklassen (Roadmap-Stufe 6, Punkt 4)
+
+   Die Rahmenstufen (1080 px Symbolleiste, 860 px einspaltig) und die
+   Begründung dafür stehen am Ende von styles/main.css. Hier folgt nur, was
+   einzelne Bildschirme darüber hinaus brauchen. Gemessen wurde bei 1600,
+   1280, 1024 und 900 px; jede Regel unten hat einen Befund als Ursache.
+   ========================================================================== */
+
+@media (max-width: 1080px) {
+  /* Der Spieltag ist der einzige Bildschirm, der um Höhe kämpft: Anzeigetafel,
+     Feld, Ticker und Steuerung müssen zusammen in 768 px passen. */
+  .tv-spieltag .tv-ticker { height: 150px; }
+  .tv-anzeigetafel { padding: 6px 10px; gap: 8px; }
+  .tv-anzeigetafel__stand { font-size: 30px; letter-spacing: 2px; }
+  .tv-anzeigetafel__team { font-size: 14px; gap: 6px; }
+
+  .tv-stadion__view { height: 190px; }
+  .tv-chart { height: 132px; }
+
+  /* Zeilenraster mit festen Spalten: die Zahlenspalten dürfen schrumpfen. */
+  .tv-lazarett__zeile { grid-template-columns: minmax(0, 1fr) 104px 74px 74px; gap: 6px; }
+
+  .tv-wochenplan { gap: 3px; }
+  .tv-wochenplan__tag { padding: 4px; min-height: 78px; }
+
+  .tv-zeitung { padding: 11px 13px; }
+  .tv-zeitung__kopf { font-size: 23px; }
+  .tv-zeitung__schlagzeile { font-size: 18px; }
+}
+
+@media (max-width: 860px) {
+  /* Ab hier reicht es für keine zweite Spalte mehr – auch nicht für die
+     schmalen, die bisher noch standgehalten haben. */
+  .tv-buero,
+  .tv-bilanz,
+  .tv-saison__elf { grid-template-columns: minmax(0, 1fr); }
+  .tv-schwierigkeit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tv-lazarett__zeile { grid-template-columns: minmax(0, 1fr) 88px; gap: 4px 6px; }
+  .tv-buero__post { max-height: 320px; }
+  .tv-spieltag .tv-ticker { height: 128px; }
+}

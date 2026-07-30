@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TRAUMVEREIN – Der Fußballmanager</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/screens.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚽</text></svg>">
+</head>
+<body>
+  <div id="app">
+    <div class="tv-lade" id="tv-boot">TRAUMVEREIN wird geladen …</div>
+  </div>
+  <div id="tv-toasts"></div>
+
+  <script type="module">
+    import { boot } from './src/main.js';
+    boot(document.getElementById('app')).catch(err => {
+      console.error(err);
+      const app = document.getElementById('app');
+      app.innerHTML = '';
+      const box = document.createElement('div');
+      box.style.cssText = 'padding:32px;color:#f2e8cf;font-family:sans-serif;line-height:1.6';
+      box.innerHTML = '<h1 style="color:#e04b4b">Startfehler</h1>' +
+        '<p>Das Spiel konnte nicht geladen werden.</p>' +
+        '<pre style="background:rgba(0,0,0,.4);padding:12px;overflow:auto;white-space:pre-wrap">' +
+        String(err && err.stack || err).replace(/</g, '&lt;') + '</pre>' +
+        '<p style="opacity:.7">Hinweis: Das Spiel muss über einen Webserver laufen — und zwar über ' +
+        '<code>npm start</code> bzw. <code>node tools/server.js</code> im Projektordner, dann ' +
+        '<code>http://localhost:8123</code> öffnen. Nicht <code>python3 -m http.server</code>: ' +
+        'der schickt keine Cache-Vorgaben, Chrome liefert dann veraltete Module aus, und der ' +
+        'Fehler oben sieht aus wie ein Programmierfehler. Die Begründung steht im Kopf von ' +
+        '<code>tools/server.js</code>.</p>';
+      app.appendChild(box);
+    });
+  </script>
+</body>
+</html>

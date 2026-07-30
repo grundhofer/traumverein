@@ -1,0 +1,17 @@
+# Das Projekt hat bewusst keine Abhängigkeiten und keinen Build-Schritt
+# (docs/CONTRACTS.md § 0). Falls hier je ein node_modules auftaucht, ist etwas
+# schiefgelaufen – ignoriert wird es trotzdem.
+node_modules/
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
+
+# Editoren
+.vscode/
+.idea/
+*.swp
+
+# Laufzeit- und Prüfausgaben
+*.log
+/tmp/

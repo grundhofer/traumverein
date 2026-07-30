@@ -1,0 +1,659 @@
+/* ==========================================================================
+   TRAUMVEREIN – Designsystem im Geist von Anstoss 1/2
+   Holz, Filz, vergilbtes Papier, Rasengrün und dicke Bevel-Kanten.
+   ========================================================================== */
+
+:root {
+  /* Rasen */
+  --gruen-900: #14361a;
+  --gruen-800: #1c4a22;
+  --gruen-700: #276b2a;
+  --gruen-600: #2f7d32;
+  --gruen-500: #3d9440;
+  --gruen-400: #57ad55;
+
+  /* Holz & Leder (Managerbüro) */
+  --holz-900: #2a1a0e;
+  --holz-800: #3d2716;
+  --holz-700: #55361d;
+  --holz-600: #6d4524;
+  --holz-500: #8b5a2b;
+  --holz-400: #a9743f;
+
+  /* Papier & Akten */
+  --papier: #f2e8cf;
+  --papier-dunkel: #e0d2ae;
+  --papier-tief: #c9b78d;
+  --beige: #e8d9b0;
+
+  /* Signale */
+  --rot: #c1272d;
+  --rot-hell: #e04b4b;
+  --blau: #1c4f8f;
+  --blau-hell: #3d7ac4;
+  --gold: #d9a521;
+  --gold-hell: #f0c956;
+  --orange: #e07b19;
+  --tuerkis: #1f8a8a;
+
+  /* Bewertungsfarben */
+  --rat-elite: #16a34a;
+  --rat-stark: #65a30d;
+  --rat-gut: #ca8a04;
+  --rat-ok: #d97706;
+  --rat-schwach: #dc2626;
+  --rat-mies: #7f1d1d;
+
+  /* Flächen */
+  --flaeche: #cfc2a0;
+  --flaeche-hell: #e6dcc0;
+  --flaeche-dunkel: #a8987a;
+  --tinte: #241c10;
+  --tinte-weich: #4a3d28;
+  --linie: #8a7852;
+
+  /* Bevel */
+  --bevel-hell: rgba(255, 255, 255, 0.55);
+  --bevel-dunkel: rgba(0, 0, 0, 0.42);
+
+  /* Fokus – zwei Farben, weil es zwei Untergründe gibt: Papier und Holz. */
+  --fokus: #2f6fd0;
+  --fokus-hell: #ffd97a;
+
+  --font-ui: "Segoe UI", "Trebuchet MS", Tahoma, "DejaVu Sans", sans-serif;
+  --font-num: "Consolas", "SF Mono", "DejaVu Sans Mono", monospace;
+  --font-titel: "Impact", "Haettenschweiler", "Franklin Gothic Bold", "Arial Black", sans-serif;
+
+  --radius: 3px;
+  --schatten: 0 3px 0 rgba(0, 0, 0, .28), 0 6px 14px rgba(0, 0, 0, .35);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--tinte);
+  background: var(--holz-900);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+body {
+  background-image:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .12) 0 2px, transparent 2px 7px),
+    linear-gradient(160deg, var(--holz-700), var(--holz-900) 70%);
+}
+
+button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+
+/* ---------- Grundlayout ------------------------------------------------ */
+
+#app { height: 100vh; display: flex; flex-direction: column; }
+
+.tv-shell {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  grid-template-rows: 54px 1fr 30px;
+  grid-template-areas: "kopf kopf" "nav inhalt" "fuss fuss";
+  gap: 0;
+  min-height: 0;
+}
+
+/* ---------- Kopfleiste ------------------------------------------------- */
+
+.tv-kopf {
+  grid-area: kopf;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, var(--holz-500), var(--holz-700) 60%, var(--holz-800));
+  border-bottom: 3px solid var(--holz-900);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .5);
+  color: var(--papier);
+  z-index: 30;
+}
+
+.tv-kopf__wappen { width: 38px; height: 38px; flex: 0 0 38px; filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)); }
+
+.tv-kopf__verein { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; flex: 0 1 150px; }
+.tv-kopf__verein b { font-size: 15px; letter-spacing: .4px; }
+.tv-kopf__verein span { font-size: 11px; opacity: .78; }
+.tv-kopf__verein b, .tv-kopf__verein span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tv-kopf__spacer { flex: 1; }
+
+.tv-kopf__stat {
+  display: flex; flex-direction: column; align-items: flex-end;
+  padding: 2px 10px; line-height: 1.2;
+  border-left: 1px solid rgba(0, 0, 0, .3);
+  box-shadow: -1px 0 0 rgba(255, 255, 255, .1);
+}
+.tv-kopf__stat label { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; opacity: .7; }
+.tv-kopf__stat b { font-family: var(--font-num); font-size: 14px; }
+.tv-kopf__stat b.plus { color: #8fe08f; }
+.tv-kopf__stat b.minus { color: #ff9a9a; }
+
+/* ---------- Navigation (Aktenschrank) ---------------------------------- */
+
+.tv-nav {
+  grid-area: nav;
+  background: linear-gradient(90deg, var(--holz-800), var(--holz-700) 85%, var(--holz-600));
+  border-right: 3px solid var(--holz-900);
+  padding: 8px 0 8px 6px;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 3px;
+  z-index: 20;
+}
+
+.tv-nav__btn {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px;
+  background: linear-gradient(180deg, var(--beige), var(--papier-dunkel));
+  border: 0;
+  border-radius: 4px 0 0 4px;
+  border-top: 1px solid var(--bevel-hell);
+  border-left: 1px solid var(--bevel-hell);
+  border-bottom: 2px solid rgba(0, 0, 0, .3);
+  color: var(--tinte);
+  font-size: 12.5px; font-weight: 600; letter-spacing: .5px;
+  text-align: left; cursor: pointer;
+  margin-right: 8px;
+  transition: margin-right .12s ease, background .12s ease;
+  position: relative;
+}
+.tv-nav__btn:hover { margin-right: 3px; background: linear-gradient(180deg, #fff6e0, var(--beige)); }
+.tv-nav__btn.aktiv {
+  margin-right: 0;
+  background: linear-gradient(180deg, var(--papier), #fffbf0);
+  box-shadow: inset 3px 0 0 var(--rot);
+  font-weight: 700;
+}
+.tv-nav__btn .tv-nav__icon { font-size: 16px; width: 20px; text-align: center; filter: saturate(.85); }
+.tv-nav__badge {
+  margin-left: auto;
+  background: var(--rot); color: #fff;
+  font-size: 10px; font-weight: 700; font-family: var(--font-num);
+  padding: 1px 5px; border-radius: 8px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .35);
+}
+.tv-nav__trenner { height: 1px; margin: 6px 12px 6px 4px; background: rgba(0, 0, 0, .3); box-shadow: 0 1px 0 rgba(255, 255, 255, .1); }
+
+/* ---------- Inhaltsbereich --------------------------------------------- */
+
+.tv-inhalt {
+  grid-area: inhalt;
+  overflow: auto;
+  padding: 12px;
+  background:
+    radial-gradient(ellipse at 20% 0%, rgba(255, 255, 255, .07), transparent 60%),
+    linear-gradient(175deg, #6f5c3c, #4a3c26);
+  min-height: 0;
+}
+
+.tv-seite { display: flex; flex-direction: column; gap: 12px; max-width: 1500px; }
+.tv-seite__kopf { display: flex; align-items: baseline; gap: 12px; margin-bottom: 2px; }
+.tv-seite__titel {
+  font-family: var(--font-titel);
+  font-size: 26px; letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--papier);
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, .55);
+  margin: 0;
+}
+.tv-seite__unter { color: var(--papier-tief); font-size: 12.5px; }
+
+.tv-grid { display: grid; gap: 12px; }
+.tv-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tv-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tv-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tv-grid--haupt { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.tv-grid--seiten { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+/*
+ * Ein Gitterkind darf nie breiter werden als seine Spur. Ohne diese Zeile
+ * gilt `min-width: auto` (= Mindestbreite des Inhalts): Vier Kennzahlkacheln
+ * in einer schmalen Seitenspalte schoben sich dann übereinander und rechts
+ * aus dem Panel heraus. Gemessen am Prüfstand: Jugend und Trainerstab bei
+ * 1280 px, sechs bzw. drei Überlappungen je Bildschirm.
+ */
+.tv-grid > * { min-width: 0; }
+@media (max-width: 1100px) {
+  .tv-grid--3, .tv-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tv-grid--haupt, .tv-grid--seiten { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- Panel (die Anstoß-Box) -------------------------------------- */
+
+.tv-panel {
+  background: linear-gradient(180deg, var(--flaeche-hell), var(--flaeche));
+  border-top: 2px solid var(--bevel-hell);
+  border-left: 2px solid var(--bevel-hell);
+  border-right: 2px solid var(--bevel-dunkel);
+  border-bottom: 2px solid var(--bevel-dunkel);
+  border-radius: var(--radius);
+  box-shadow: var(--schatten);
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+
+/*
+ * Der Panel-Kopf gehört render/ui.js: panel() erzeugt `.tv-panel-kopf` (mit
+ * Bindestrich) und bringt die Grundgestaltung in seinem eigenen Stylesheet mit.
+ * Hier stand jahrelang eine zweite, blaue Fassung unter `.tv-panel__kopf` – die
+ * hat nie gegriffen, weil es diese Klasse im erzeugten Markup gar nicht gibt.
+ * Entfernt: eine Wahrheit je Bauteil, und die liegt bei der Bausteinbibliothek.
+ *
+ * Die Farbvarianten bleiben hier, weil ui.js sie nicht kennt. Sie zielen jetzt
+ * auf die tatsächlich erzeugte Klasse und gewinnen über ihre höhere Spezifität
+ * gegen die Grundgestaltung aus ui.js.
+ */
+.tv-panel-kopf .tv-panel__extra,
+.tv-panel__extra { margin-left: auto; font-weight: 400; letter-spacing: .3px; text-transform: none; opacity: .9; }
+.tv-panel__koerper { padding: 10px; overflow: auto; min-height: 0; }
+.tv-panel__koerper--flach { padding: 0; }
+
+.tv-panel--gruen .tv-panel-kopf { background: linear-gradient(180deg, var(--gruen-500), var(--gruen-700)); }
+.tv-panel--rot .tv-panel-kopf { background: linear-gradient(180deg, var(--rot-hell), var(--rot)); }
+.tv-panel--gold .tv-panel-kopf { background: linear-gradient(180deg, var(--gold-hell), var(--gold)); color: var(--holz-900); text-shadow: none; }
+.tv-panel--holz .tv-panel-kopf { background: linear-gradient(180deg, var(--holz-500), var(--holz-700)); }
+
+.tv-subpanel {
+  background: rgba(255, 255, 255, .35);
+  border: 1px solid var(--linie);
+  border-radius: 2px;
+  padding: 8px;
+}
+.tv-subpanel__titel {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .9px;
+  color: var(--tinte-weich); margin-bottom: 6px;
+  border-bottom: 1px solid var(--linie); padding-bottom: 3px;
+}
+
+/* ---------- Knöpfe ------------------------------------------------------ */
+
+.tv-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 6px 13px;
+  background: linear-gradient(180deg, #f5ecd4, var(--papier-dunkel));
+  border-top: 1px solid var(--bevel-hell);
+  border-left: 1px solid var(--bevel-hell);
+  border-right: 1px solid rgba(0, 0, 0, .35);
+  border-bottom: 2px solid rgba(0, 0, 0, .35);
+  border-radius: var(--radius);
+  color: var(--tinte);
+  font-size: 12.5px; font-weight: 700; letter-spacing: .4px;
+  cursor: pointer; white-space: nowrap;
+  transition: transform .06s, filter .12s;
+}
+.tv-btn:hover:not(:disabled) { filter: brightness(1.07); }
+.tv-btn:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 1px; margin-bottom: 1px; }
+.tv-btn:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.6); }
+
+.tv-btn--primary { background: linear-gradient(180deg, var(--gruen-500), var(--gruen-700)); color: #fff; text-shadow: 1px 1px 0 rgba(0,0,0,.4); }
+.tv-btn--danger { background: linear-gradient(180deg, var(--rot-hell), var(--rot)); color: #fff; text-shadow: 1px 1px 0 rgba(0,0,0,.4); }
+.tv-btn--gold { background: linear-gradient(180deg, var(--gold-hell), var(--gold)); color: var(--holz-900); }
+.tv-btn--blau { background: linear-gradient(180deg, var(--blau-hell), var(--blau)); color: #fff; text-shadow: 1px 1px 0 rgba(0,0,0,.4); }
+.tv-btn--ghost { background: rgba(255, 255, 255, .25); }
+.tv-btn--gross { padding: 11px 22px; font-size: 15px; letter-spacing: 1px; }
+.tv-btn--klein { padding: 3px 8px; font-size: 11px; }
+.tv-btn--breit { width: 100%; }
+
+/* ---------- Fokusringe (Roadmap-Stufe 6) -------------------------------------
+   Bis Stufe 5 hatten nur Knöpfe, Tabellenköpfe und Regler einen sichtbaren
+   Fokus – und die nur in der Bausteinbibliothek (render/ui.js). Alles, was die
+   Bildschirme selbst bauen (Auswahlfelder, Ankreuzfelder, Eingabefelder,
+   Reiter, klickbare Zeilen), war mit der Tastatur unsichtbar bedienbar.
+
+   Zuständigkeit, damit es nicht zwei Wahrheiten gibt: render/ui.js bringt die
+   Ringe für SEINE Bauteile mit (es soll auch ohne dieses Stylesheet gehen);
+   hier steht die Grundregel für alles Übrige plus die Ausnahmen für dunkle
+   Untergründe. Beide zeichnen denselben Ring – nur eben an anderen Stellen.
+
+   `:where(...)` hält die Spezifität bei null: Jede Bildschirmregel, die es
+   genauer weiß, gewinnt ohne `!important`.
+   Durchweg `:focus-visible` – ein Mausklick soll keinen Ring hinterlassen. */
+
+:where(a, button, input, select, textarea, summary, [tabindex], [contenteditable]):focus-visible {
+  outline: 2px solid var(--fokus);
+  outline-offset: 1px;
+}
+/* Ankreuz- und Auswahlknöpfe sind winzig; ihr Ring braucht Luft. */
+:where(input[type=checkbox], input[type=radio]):focus-visible { outline-offset: 2px; }
+
+/* Auf Holz verschwindet Blau. Aktenschrank, Tabellenkopf und Reiter bekommen Gold. */
+.tv-nav__btn:focus-visible,
+.tv-tab:focus-visible,
+.tv-tabelle th:focus-visible {
+  outline: 2px solid var(--fokus-hell);
+  outline-offset: -2px;
+}
+/* Zeilen: nach innen gezeichnet, sonst schneidet die Nachbarzeile den Ring ab. */
+.tv-tabelle tbody tr:focus-visible {
+  outline: 2px solid var(--fokus);
+  outline-offset: -2px;
+}
+/* Ganze Zeilen, die als Schalter dienen (Einstellungen, Postfach, Antworten). */
+label.tv-opt:focus-within { background: rgba(255, 245, 200, .45); box-shadow: inset 3px 0 0 var(--fokus); }
+
+/* ---------- Tabellen ---------------------------------------------------- */
+
+/*
+ * Der eigene Scrollbereich der Tabelle. Breite Spaltensätze (Kader mit allen
+ * Attributen, Transferliste) scrollen HIER waagerecht – nie die Seite.
+ * `overscroll-behavior-x: contain` sorgt dafür, dass am Ende der Tabelle nicht
+ * plötzlich der Inhaltsbereich mitruckt.
+ */
+.tv-tabelle-wrap { overflow: auto; max-width: 100%; overscroll-behavior-x: contain;
+  border: 1px solid var(--linie); background: rgba(255,255,255,.22); }
+.tv-tabelle { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tv-tabelle th {
+  position: sticky; top: 0; z-index: 2;
+  background: linear-gradient(180deg, var(--holz-500), var(--holz-700));
+  color: var(--papier);
+  padding: 5px 7px; text-align: left;
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px;
+  border-right: 1px solid rgba(0, 0, 0, .25);
+  cursor: pointer; white-space: nowrap;
+}
+.tv-tabelle th.sortiert::after { content: ' ▾'; }
+.tv-tabelle th.sortiert.auf::after { content: ' ▴'; }
+.tv-tabelle td {
+  padding: 3px 7px;
+  border-bottom: 1px solid rgba(0, 0, 0, .12);
+  border-right: 1px solid rgba(0, 0, 0, .07);
+  white-space: nowrap;
+}
+.tv-tabelle tbody tr:nth-child(even) { background: rgba(0, 0, 0, .05); }
+.tv-tabelle tbody tr:hover { background: rgba(255, 245, 200, .6); }
+.tv-tabelle tbody tr.gewaehlt { background: rgba(217, 165, 33, .45) !important; box-shadow: inset 3px 0 0 var(--rot); }
+.tv-tabelle .num { font-family: var(--font-num); text-align: right; }
+.tv-tabelle .mitte { text-align: center; }
+.tv-tabelle--kompakt td { padding: 1px 6px; font-size: 11.5px; }
+
+tr.zeile--verletzt { color: #8b2020; }
+tr.zeile--gesperrt { color: #6b4f00; font-style: italic; }
+tr.zeile--jugend { color: #1c5f5f; }
+tr.zeile--legende { background: linear-gradient(90deg, rgba(217,165,33,.22), transparent 55%); }
+
+/* ---------- Bewertungen & Balken --------------------------------------- */
+
+.tv-bar { position: relative; height: 11px; background: rgba(0, 0, 0, .28); border-radius: 2px; overflow: hidden; border: 1px solid rgba(0,0,0,.3); }
+.tv-bar__fill { height: 100%; transition: width .25s ease; }
+.tv-bar__label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 700; color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.9); font-family: var(--font-num); }
+.tv-bar--gross { height: 16px; }
+.tv-bar--gross .tv-bar__label { font-size: 11px; }
+
+.rat-elite { background: var(--rat-elite); } .rat-elite-text { color: var(--rat-elite); font-weight: 700; }
+.rat-stark { background: var(--rat-stark); } .rat-stark-text { color: var(--rat-stark); font-weight: 700; }
+.rat-gut { background: var(--rat-gut); } .rat-gut-text { color: var(--rat-gut); font-weight: 700; }
+.rat-ok { background: var(--rat-ok); } .rat-ok-text { color: var(--rat-ok); }
+.rat-schwach { background: var(--rat-schwach); } .rat-schwach-text { color: var(--rat-schwach); }
+.rat-mies { background: var(--rat-mies); } .rat-mies-text { color: var(--rat-mies); }
+
+.tv-wert { font-family: var(--font-num); font-weight: 700; display: inline-block; min-width: 22px; text-align: right; }
+
+/* ---------- Pillen, Marken, Icons -------------------------------------- */
+
+.tv-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 9px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .4px;
+  background: var(--flaeche-dunkel); color: var(--tinte);
+  border: 1px solid rgba(0, 0, 0, .25);
+}
+.tv-pill--gut { background: var(--gruen-500); color: #fff; }
+.tv-pill--warn { background: var(--gold); color: var(--holz-900); }
+.tv-pill--schlecht { background: var(--rot); color: #fff; }
+.tv-pill--info { background: var(--blau); color: #fff; }
+.tv-pill--legende { background: linear-gradient(90deg, var(--gold), var(--gold-hell)); color: var(--holz-900); box-shadow: 0 0 6px rgba(217,165,33,.6); }
+
+.tv-icon { display: inline-block; vertical-align: -2px; }
+
+.tv-pos {
+  display: inline-block; min-width: 26px; text-align: center;
+  padding: 1px 3px; border-radius: 2px;
+  font-size: 10.5px; font-weight: 700; color: #fff;
+  text-shadow: 1px 1px 0 rgba(0,0,0,.35);
+}
+.tv-pos--TW { background: #b8860b; }
+.tv-pos--ABW { background: #1c6fb0; }
+.tv-pos--MIT { background: #2f8f3f; }
+.tv-pos--STU { background: #c1272d; }
+
+/* ---------- Statistikkacheln ------------------------------------------- */
+
+.tv-stat {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 9px;
+  background: rgba(255, 255, 255, .32);
+  border: 1px solid var(--linie);
+  border-radius: 2px;
+}
+.tv-stat label { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--tinte-weich); }
+.tv-stat b { font-family: var(--font-num); font-size: 17px; line-height: 1.1; }
+.tv-stat small { font-size: 10.5px; color: var(--tinte-weich); }
+
+/* ---------- Dialoge ------------------------------------------------------ */
+
+.tv-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(10, 6, 2, .68);
+  display: flex; align-items: center; justify-content: center;
+  animation: tv-fade .14s ease;
+}
+@keyframes tv-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.tv-dialog {
+  min-width: 340px; max-width: min(940px, 94vw); max-height: 90vh;
+  display: flex; flex-direction: column;
+  animation: tv-pop .16s cubic-bezier(.3, 1.5, .6, 1);
+}
+@keyframes tv-pop { from { transform: scale(.92) translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.tv-dialog__koerper { padding: 14px; overflow: auto; font-size: 13.5px; line-height: 1.5; }
+.tv-dialog__aktionen {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 9px 12px;
+  background: rgba(0, 0, 0, .1);
+  border-top: 1px solid var(--linie);
+}
+
+/* ---------- Toasts ------------------------------------------------------ */
+
+#tv-toasts { position: fixed; right: 14px; bottom: 44px; z-index: 600; display: flex; flex-direction: column; gap: 7px; align-items: flex-end; pointer-events: none; }
+.tv-toast {
+  padding: 8px 14px;
+  background: linear-gradient(180deg, var(--flaeche-hell), var(--flaeche));
+  border-left: 5px solid var(--blau);
+  border-radius: 2px;
+  box-shadow: var(--schatten);
+  font-size: 12.5px; font-weight: 600;
+  max-width: 380px;
+  animation: tv-slide .2s ease;
+}
+@keyframes tv-slide { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tv-toast--gut { border-left-color: var(--gruen-500); }
+.tv-toast--warn { border-left-color: var(--gold); }
+.tv-toast--schlecht { border-left-color: var(--rot); }
+
+/* ---------- Fußzeile ---------------------------------------------------- */
+
+.tv-fuss {
+  grid-area: fuss;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, var(--holz-700), var(--holz-900));
+  border-top: 2px solid rgba(0, 0, 0, .5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+  color: var(--papier-tief);
+  font-size: 11px; letter-spacing: .3px;
+  z-index: 20;
+}
+.tv-fuss__ticker { flex: 1; overflow: hidden; white-space: nowrap; }
+.tv-fuss__ticker span { display: inline-block; padding-right: 60px; }
+
+/* ---------- Sonstiges ---------------------------------------------------- */
+
+.tv-tabs { display: flex; gap: 2px; padding: 0 6px; background: rgba(0, 0, 0, .16); border-bottom: 2px solid rgba(0,0,0,.3); flex-wrap: wrap; }
+.tv-tab {
+  padding: 5px 14px;
+  background: linear-gradient(180deg, var(--flaeche-dunkel), #96866a);
+  border: 0; border-radius: 4px 4px 0 0;
+  color: var(--tinte); font-size: 11.5px; font-weight: 700; letter-spacing: .5px;
+  cursor: pointer; margin-top: 3px;
+}
+.tv-tab.aktiv { background: linear-gradient(180deg, var(--flaeche-hell), var(--flaeche)); margin-top: 0; padding-top: 8px; }
+
+.tv-leer { padding: 26px; text-align: center; color: var(--tinte-weich); font-style: italic; }
+
+.tv-scroll { overflow-y: auto; }
+.tv-scroll::-webkit-scrollbar, .tv-inhalt::-webkit-scrollbar, .tv-panel__koerper::-webkit-scrollbar, .tv-tabelle-wrap::-webkit-scrollbar { width: 12px; height: 12px; }
+.tv-scroll::-webkit-scrollbar-track, .tv-inhalt::-webkit-scrollbar-track, .tv-panel__koerper::-webkit-scrollbar-track, .tv-tabelle-wrap::-webkit-scrollbar-track { background: rgba(0, 0, 0, .22); }
+.tv-scroll::-webkit-scrollbar-thumb, .tv-inhalt::-webkit-scrollbar-thumb, .tv-panel__koerper::-webkit-scrollbar-thumb, .tv-tabelle-wrap::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--holz-400), var(--holz-600));
+  border: 1px solid rgba(0, 0, 0, .4); border-radius: 2px;
+}
+
+.tv-trenner { height: 1px; background: var(--linie); box-shadow: 0 1px 0 rgba(255, 255, 255, .3); margin: 8px 0; }
+
+/*
+ * `flex-wrap: wrap` ist hier kein Geschmack, sondern die Reparatur eines
+ * Messwerts: Eine Zeile aus zwei Knöpfen und einem Hinweistext passte in
+ * einer 320 px breiten Seitenspalte nicht mehr und lief rechts aus dem Panel
+ * (Finanzen, Trainerstab, Büro). Umbrechen ist immer besser als hinauslaufen –
+ * wo der Platz reicht, ändert sich nichts.
+ */
+.tv-zeile { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tv-zeile--verteilt { justify-content: space-between; }
+.tv-spalte { display: flex; flex-direction: column; gap: 8px; }
+.tv-mini { font-size: 11px; color: var(--tinte-weich); }
+.tv-num { font-family: var(--font-num); }
+.tv-rechts { text-align: right; }
+.tv-mittig { text-align: center; }
+.tv-fett { font-weight: 700; }
+.tv-gut { color: var(--gruen-700); font-weight: 700; }
+.tv-schlecht { color: var(--rot); font-weight: 700; }
+.tv-gedaempft { opacity: .6; }
+.tv-warnung { color: #8a5a00; font-weight: 600; }
+
+.tv-slider { display: flex; align-items: center; gap: 8px; margin: 5px 0; flex-wrap: wrap; }
+.tv-slider label { font-size: 11.5px; font-weight: 600; width: 110px; flex: 0 1 110px; min-width: 0; }
+.tv-slider input[type=range] { flex: 1; accent-color: var(--gruen-600); }
+.tv-slider .tv-slider__wert { font-family: var(--font-num); font-size: 11.5px; width: 32px; text-align: right; }
+.tv-slider__enden { display: flex; justify-content: space-between; font-size: 10px; color: var(--tinte-weich); }
+
+.tv-portrait {
+  border: 2px solid var(--holz-700);
+  border-radius: 2px;
+  background: linear-gradient(180deg, #cdd8e4, #93a4b8);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .35);
+  image-rendering: auto;
+  display: block;
+}
+.tv-portrait--gross { border-width: 3px; }
+
+.tv-blink { animation: tv-blink 1.1s steps(2, start) infinite; }
+@keyframes tv-blink { 50% { opacity: .35; } }
+
+.tv-lade { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--papier); font-size: 15px; letter-spacing: 1px; }
+
+/* ==========================================================================
+   KLEINERE BILDSCHIRME (Roadmap-Stufe 6, Punkt 4)
+
+   Zielbild ist ein 10-Zoll-Tablet im QUERFORMAT, rund 1024 × 768. Ausdrücklich
+   nicht das Telefon: Ein Fußballmanager mit 17 Bildschirmen, sechs Reglern je
+   Taktikbrett und Tabellen mit zwölf Spalten wird im Hochformat nicht besser,
+   sondern nur kleiner. Wer das will, baut ein anderes Spiel.
+
+   Die Stufen, von außen nach innen:
+
+     1250 px  Kader, Taktik, Transfermarkt werfen ihre Detailspalte unter die
+              Liste (steht in screens.css, seit jeher).
+     1100 px  Kachelgitter halbieren sich, Haupt- und Seitenspalte stapeln.
+      1080 px Der Aktenschrank wird zur Symbolleiste.  ← neu in Stufe 6
+      860 px  Alles wird einspaltig.                   ← neu in Stufe 6
+
+   Warum 1080 und nicht 1024? Weil das Zielgerät sonst genau auf der Kante
+   stünde: Bei `max-width: 1024px` bekäme ein Fenster von 1026 px die alte
+   Spalte und säße wieder in der Enge. Die Schwelle liegt deshalb bewusst
+   ein Stück über dem Zielbild.
+
+   Warum Leiste und nicht Schublade? Drei Gründe, alle nachgemessen:
+
+     · Platz. Bei 1024 px kostet die 210-px-Spalte ein Fünftel der Breite. Die
+       Symbolleiste kostet 56 px – der Inhalt wächst von 798 auf 952 px, und
+       genau diese 154 px entscheiden bei Kader und Transfermarkt darüber, ob
+       eine Tabelle noch ohne Waagerechtscrollen passt.
+     · Höhe. Eine Leiste OBEN hätte 1024 px Breite gekauft und dafür von 768 px
+       Höhe weitere 40 gekostet. Höhe ist auf einem Tablet im Querformat das
+       knappere Gut, nicht Breite.
+     · Zustand. Eine Schublade braucht Auf/Zu, Fokusfang, eine Rücktaste und
+       eine Regel, was ESC damit macht – vier neue Zustände in einem Rahmen,
+       der bisher keinen hatte. Die Leiste braucht keinen: Alle 17 Reiter
+       bleiben sichtbar und anklickbar, nur die Beschriftung geht in `title`
+       und `aria-label`. Die Tastenkürzel (1…9, 0, Q W E R T Z U) hängen an
+       main.js:tastatur() und sind von der Darstellung völlig unabhängig.
+   ========================================================================== */
+
+.tv-nav__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1080px) {
+  /* Der Aktenschrank wird zur Symbolleiste. */
+  .tv-shell { grid-template-columns: 56px 1fr; grid-template-rows: 46px 1fr 24px; }
+
+  /* Gerechnet, nicht geschätzt: 17 Reiter + 3 Trenner müssen auf ein Tablet
+     mit 768 px Höhe passen. Nach Abzug von Kopf (46) und Fuß (24) bleiben
+     698 px. Ein Reiter misst gemessene 31 px (18 px Symbol + 12 px Polster);
+     17 × 31 + 16 × 1 px Fuge + 3 Trenner à 7 px + 10 px Innenrand ergeben
+     574 px. Wer hier die Polsterung erhöht, muss neu rechnen – sonst scrollt
+     der Aktenschrank, und der letzte Reiter verschwindet.
+     `line-height: 1` ist Teil der Rechnung: Die Symbole sind Emoji, und deren
+     normale Zeilenhöhe ist je nach Schrift bis zu 26 px hoch. */
+  .tv-nav { padding: 5px 0 5px 4px; gap: 1px; }
+  .tv-nav__btn { justify-content: center; gap: 0; padding: 6px 3px; margin-right: 4px; }
+  .tv-nav__btn:hover { margin-right: 2px; }
+  .tv-nav__btn.aktiv { margin-right: 0; }
+  .tv-nav__label, .tv-nav__taste { display: none; }
+  .tv-nav__icon { font-size: 18px; width: auto; line-height: 1; }
+  .tv-nav__badge {
+    position: absolute; top: 0; right: 1px; margin: 0;
+    font-size: 9px; line-height: 12px; padding: 0 3px;
+  }
+  .tv-nav__trenner { margin: 3px 8px 3px 2px; }
+
+  /* Kopf- und Fußleiste rücken zusammen, ohne eine Zahl zu verlieren. */
+  .tv-kopf { gap: 7px; padding: 0 7px; }
+  .tv-kopf__wappen { width: 30px; height: 30px; flex: 0 0 30px; }
+  .tv-kopf__verein { flex: 0 1 110px; }
+  .tv-kopf__verein b { font-size: 13px; }
+  .tv-kopf__verein span { font-size: 10px; }
+  .tv-kopf__stat { padding: 2px 6px; }
+  .tv-kopf__stat label { font-size: 9px; letter-spacing: .4px; }
+  .tv-kopf__stat b { font-size: 12.5px; }
+  .tv-fuss { font-size: 10px; gap: 8px; padding: 0 8px; }
+
+  .tv-inhalt { padding: 8px; }
+  .tv-seite { gap: 9px; }
+  .tv-seite__kopf { flex-wrap: wrap; gap: 4px 10px; }
+  .tv-seite__titel { font-size: 20px; letter-spacing: 1px; }
+  .tv-seite__unter { font-size: 11.5px; }
+
+  .tv-grid { gap: 9px; }
+  .tv-panel__koerper { padding: 8px; }
+  .tv-slider label { flex-basis: 84px; }
+  .tv-dialog { min-width: 0; max-width: 94vw; }
+}
+
+@media (max-width: 860px) {
+  /* Ab hier hat keine zweite Spalte mehr genug Breite, um etwas zu zeigen. */
+  .tv-grid--2, .tv-grid--3, .tv-grid--4 { grid-template-columns: minmax(0, 1fr); }
+  .tv-shell { grid-template-columns: 50px 1fr; }
+  .tv-seite__titel { font-size: 18px; }
+  .tv-tabelle th { font-size: 10px; padding: 4px 5px; }
+  .tv-tabelle td { padding: 3px 5px; }
+}
