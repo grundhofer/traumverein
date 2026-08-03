@@ -207,8 +207,13 @@ function drawShoe(ctx, fx, fy, ang, w, o) {
    von Beinen und Armen. Der Oberkörper wird entlang hip→chest gedreht, damit
    Neigungen (Grätsche, Hechtsprung, Liegend) automatisch stimmen.            */
 
-function buildRig(pose, frame, m, isKeeper) {
+/**
+ * @param {number} [gait=1] Schrittamplitude der Laufpose (0,45 = Trab, 1,25 = Sprint).
+ *   Rein additiv: ohne Angabe verhält sich das Rig wie bisher.
+ */
+function buildRig(pose, frame, m, isKeeper, gait) {
   const f = clamp(frame || 0, 0, 1);
+  const g = clamp(isFinite(gait) ? gait : 1, 0.3, 1.6);
   const rig = {
     hip: [0, HIP_Y], chest: [0, CHEST_Y], head: [0, HEAD_Y],
     headRot: 0, mood: 'normal', airborne: 0, grounded: false,
@@ -218,19 +223,21 @@ function buildRig(pose, frame, m, isKeeper) {
 
   switch (pose) {
     case 'lauf': {
+      // gait skaliert Schrittweite, Kniehub, Armschwung und das Auf und Ab:
+      // ein Trab sieht damit anders aus als ein Sprint.
       const ph = f * Math.PI * 2;
       const s = Math.sin(ph);
-      const bob = -Math.abs(Math.sin(ph * 2)) * 1.1;
-      rig.hip = [0.5, HIP_Y + bob];
-      rig.chest = [1.6, CHEST_Y + bob];
-      rig.head = [2.4, HEAD_Y + bob];
+      const bob = -Math.abs(Math.sin(ph * 2)) * 1.1 * g;
+      rig.hip = [0.5 * g, HIP_Y + bob];
+      rig.chest = [1.6 * g, CHEST_Y + bob];
+      rig.head = [2.4 * g, HEAD_Y + bob];
       rig.legs = [
-        { foot: [-s * 6.8, -Math.max(0, -s) * 4.2], bend: -1.2 - s * 1.6 },
-        { foot: [s * 6.8, -Math.max(0, s) * 4.2], bend: -1.2 + s * 1.6 }
+        { foot: [-s * 6.8 * g, -Math.max(0, -s) * 4.2 * g], bend: -1.2 - s * 1.6 * g },
+        { foot: [s * 6.8 * g, -Math.max(0, s) * 4.2 * g], bend: -1.2 + s * 1.6 * g }
       ];
       rig.arms = [
-        { hand: [s * 6.0, HAND_Y + 1.5 + bob], bend: 1.8 },
-        { hand: [-s * 6.0, HAND_Y + 1.0 + bob], bend: -1.8 }
+        { hand: [s * 6.0 * g, HAND_Y + 1.5 + bob], bend: 1.8 },
+        { hand: [-s * 6.0 * g, HAND_Y + 1.0 + bob], bend: -1.8 }
       ];
       break;
     }
@@ -461,8 +468,12 @@ function drawFigure(ctx, player, x, y, scale, opts, kit, kind) {
   const isKeeper = kind === 'tw';
   const m = metricsFor(app);
   const pose = normalizePose(opts.pose, isKeeper);
-  const rig = buildRig(pose, opts.frame, m, isKeeper);
+  const rig = buildRig(pose, opts.frame, m, isKeeper, opts.gait);
   const dir = opts.dir === -1 ? -1 : 1;
+  /* Blickrichtung in der Draufsicht: wer zur Kamera oder von ihr weg läuft, wird
+   * schmaler. `opts.yaw` ist der Weltwinkel (0 = +x). Ohne yaw bleibt alles wie
+   * bisher — rein additiv. */
+  const yawSqueeze = isFinite(opts.yaw) ? clamp(Math.abs(Math.cos(opts.yaw)), 0.5, 1) : 1;
   const age = opts.age === undefined ? (player && player.age) || 26 : opts.age;
   const pal = skinPalette(app.skin);
   const outline = opts.outline !== false;
@@ -501,7 +512,7 @@ function drawFigure(ctx, player, x, y, scale, opts, kit, kind) {
 
   if (s < SIMPLE_SCALE) {
     ctx.save();
-    ctx.scale(dir, 1);
+    ctx.scale(dir * yawSqueeze, 1);
     drawSimpleFigure(ctx, app, rig, m, kit, o);
     ctx.restore();
     ctx.restore();
@@ -509,7 +520,7 @@ function drawFigure(ctx, player, x, y, scale, opts, kit, kind) {
   }
 
   ctx.save();
-  ctx.scale(dir, 1);
+  ctx.scale(dir * yawSqueeze, 1);
 
   const fr = torsoFrame(rig);
   const shoulderL = fr.to(-m.shoulder * 0.5, -(fr.len + 2.2));
@@ -775,6 +786,12 @@ function drawTorso(ctx, fr, m, kit, o) {
  *   teamColor  – Ersatzfarbe/Ringfarbe, falls kein club übergeben wird
  *   mood       – überschreibt den Gesichtsausdruck der Pose
  *   shadow     – false schaltet den Bodenschatten ab
+ *   gait       – 0,3..1,6: Schrittamplitude der Laufpose (1 = wie bisher).
+ *                Aus dem tatsächlichen Lauftempo gespeist sieht ein Trab anders
+ *                aus als ein Sprint.
+ *   yaw        – Blickrichtung als Weltwinkel in Radiant (0 = nach rechts). In
+ *                der Draufsicht wird die Figur quer zur Kamera gestaucht
+ *                (Faktor |cos(yaw)|, mindestens 0,5). Ohne yaw: keine Stauchung.
  */
 export function drawPlayer(ctx, player, x, y, scale = 1, opts = {}) {
   drawFigure(ctx, player, x, y, scale, opts, kitFor(opts), 'feld');

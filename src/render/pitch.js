@@ -31,11 +31,42 @@
  *   • ohne setTeams()  → Stadion + Ball werden trotzdem gezeichnet
  *   • phase.actors fehlt oder enthält unbekannte playerIds → wird ignoriert, kein Absturz
  *   • phase.ball leer → Ball bleibt liegen, Promise löst trotzdem auf
- *   • setSpeed(8) → Animationen werden übersprungen (sofort Endzustand)
+ *   • setSpeed(8) → Phase läuft weiter, nur gerafft (siehe PHASE_MIN_SECONDS)
  *   • destroy() → rAF-Loop gestoppt, Listener entfernt, offene Promises aufgelöst
  *
+ * ---------------------------------------------------------------------------
+ * PHASEN-SCHEMA (CONTRACTS §6)
+ * ---------------------------------------------------------------------------
+ * Es gibt GENAU EINE Verzweigung, nämlich `nutzeSegmente` in prepPhase():
+ *
+ *   phase.v >= 2 && Array.isArray(phase.segments) && phase.segments.length
+ *
+ * Ist sie wahr, liefern die Segmente Typ, Zeitfenster und Scheitelhöhe des
+ * Ballwegs sowie das Zeitfenster jedes Akteurs. Ist sie falsch, gilt exakt der
+ * Altpfad: ball[]/actors[] sind die Wahrheit, der Segmenttyp wird aus Distanz,
+ * Phasenart und einem folgenden Kopfball geraten, und skriptierte Akteure
+ * werden weiterhin per lerp+easeInOut auf ihre Zielposition gezogen (die alte
+ * Engine platziert Akteure bis 40 m entfernt – ein begrenzter Integrator
+ * erzeugte dort einen sichtbaren Snap).
+ *
+ * ---------------------------------------------------------------------------
+ * HÖHENKONVENTION (verbindlich, auch für die Schlüsselszenen)
+ * ---------------------------------------------------------------------------
+ *   DER SCHATTEN TRÄGT DIE HÖHE, DER BALL WÄCHST MIT z.
+ *
+ *   • Der Schatten liegt IMMER am Boden (x, y, 0) und wandert mit der Höhe
+ *     seitlich weg (Sonne links oben): BALL_SHADOW_DX/DY je Meter Höhe.
+ *   • Der Schattenradius ist konstant `ppm · BALL_RADIUS_M`; nur seine Form
+ *     (breiter/flacher) und sein Alpha ändern sich mit z.
+ *   • Der Ball wird um `ballLift(z)` Meter nach oben versetzt gezeichnet und
+ *     wächst dabei leicht (Perspektive), er wird NICHT größer statt höher.
+ *   • `ballLift()` sättigt (z/(1+z/12)), damit eine 25-m-Flanke nicht aus dem
+ *     Bild fliegt. Flugspur und Ball benutzen dieselbe Funktion.
+ *
  * Syntaxprüfung:  node --check src/render/pitch.js
- * (Ein Import-Test in Node ist nicht möglich – die Datei benutzt DOM/Canvas.)
+ * Die reinen Helfer (kettenTiefe, abseitsBezug, breitenSkala, torwartZiel,
+ * kameraZiel, kameraKlemme, notbremseAnteil, phaseNotbremse, ballLift, segmentTyp) sind DOM-frei
+ * und werden von tools/test-buehne.js unter Node geprüft.
  * ---------------------------------------------------------------------------
  */
 
@@ -43,6 +74,7 @@ import { drawPlayer, drawKeeper } from './players.js';
 import { clamp, lerp } from '../core/util.js';
 import { POSITION_AFFINITY, POSITION_GROUP, DEFAULT_COLORS } from '../core/constants.js';
 import { createRng } from '../core/rng.js';
+import { segmentFlug, laufwerte, sprintSchritt, lenke, SEGMENT_TYPEN } from '../core/ballistik.js';
 
 /* ===========================================================================
  * 1. KONSTANTEN — hier wird balanciert. Alle Längen in Metern.
@@ -119,26 +151,55 @@ const CROWD_FLASH_BASE = 0.0009;  // Grundwahrscheinlichkeit für ein Blitzlicht
 const CROWD_FLASH_GOAL = 0.055;   // beim Torjubel
 const CROWD_TIER_STEP = 2.6;      // Rangstufen-Abstand
 
-/* --- Spielerbewegung (Meter/Sekunde bzw. Faktoren) --- */
-const PLAYER_MAX_SPEED = 8.4;     // Sprinttempo
-const PLAYER_SMOOTH = 3.2;        // Annäherungsrate an die Zielposition
-const TEAM_SHIFT_X_ATT = 0.44;    // wie stark die Ballbesitz-Mannschaft dem Ball nachschiebt
-const TEAM_SHIFT_X_DEF = 0.52;    // dito verteidigend (kompakter, tiefer)
+/* --- Spielerbewegung ---
+ * Die Kinematik kommt aus core/ballistik.js: laufwerte() macht aus tempo/antritt/
+ * koerper/fitness echte vmax/apeak/aBrems-Werte, sprintSchritt() ist die exakte
+ * Exponentiallösung, lenke() erzeugt Laufbögen mit begrenzter Querbeschleunigung.
+ * Es gibt hier KEINEN Positionsfilter mehr — jeder Spieler hat einen echten
+ * Geschwindigkeitszustand (e.vx/e.vy). */
+const PHYS_STEP = 1 / 60;         // fester Teilschritt der Spielerintegration
+const PHYS_MAX_STEPS = 6;         // Obergrenze je Frame (Tempo 4 braucht 4)
+const TURN_ARC_SPEED = 2.0;       // ab hier wird gelenkt statt neu beschleunigt
+const TURN_ARC_MIN = 0.35;        // rad: darunter lohnt kein Bogen
+const TURN_ARC_MAX = 1.90;        // rad: darüber wird gebremst und gewendet
+const BRAKE_MARGIN = 0.35;        // m: Restweg, den der Bremsweg auslässt
 const TEAM_SHIFT_Y = 0.34;        // seitliches Verschieben zur Ballseite
 const COMPACT_ATT = 0.1;          // Sog zum Ball in Ballbesitz
 const COMPACT_DEF = 0.2;          // Sog zum Ball beim Verteidigen
-const COMPACT_RADIUS = 34;        // ab dieser Ballentfernung interessiert es keinen mehr
-const OFFSIDE_GAP = 9;            // Abwehrkette hält diesen Abstand hinter dem Ball
-const LINE_MIN_DEPTH = 6;         // Kette rückt nie näher als 6 m ans eigene Tor
-const LINE_MAX_DEPTH_DEF = 46;    // … und nicht weiter als 46 m raus, wenn sie verteidigt
-const LINE_MAX_DEPTH_ATT = 62;    // in Ballbesitz darf sie aufrücken
-const LINE_BLEND = 0.6;           // Mischung Kettenlogik ↔ Grundordnung
+const COMPACT_RADIUS = 26;        // ab dieser Ballentfernung interessiert es keinen mehr
+
+/* Abwehrkette: EINE Tiefe je Mannschaft und Frame (updateTeamLines). */
+const LINE_PUSH_RATE = 5.5;       // m/s beim Aufrücken
+const LINE_DROP_RATE = 12;        // m/s beim Zurückfallen (schneller, das ist Panik)
+const BLOCK_DEPTH_DEF_LOW = 26;   // Blocktiefe verteidigend, Ball am eigenen Tor
+const BLOCK_DEPTH_DEF_HIGH = 34;  // … Ball am gegnerischen Tor
+const BLOCK_DEPTH_ATT_LOW = 34;   // Blocktiefe in Ballbesitz
+const BLOCK_DEPTH_ATT_HIGH = 42;
+const ABW_LINE_BIND = 0.35;       // Rest-Staffelung innerhalb der Kette
+const OFFSIDE_TOLERANZ = 0.6;     // m, die ein Stürmer am letzten Mann klebt
+/* Die Grundordnung aus buildFormationSlots() ist rund 55 m tief. So spielt
+ * niemand: in Ballbesitz sind es etwa 40 m, beim Verteidigen etwa 30 m. Die
+ * Staffelung wird deshalb gestaucht — die Mannschaft schiebt als Block. */
+const BLOCK_STRETCH_ATT = 0.75;
+const BLOCK_STRETCH_DEF = 0.55;
+
+/* Breite entsteht durch SKALIERUNG um die Feldmitte, nicht durch Verschieben —
+ * sonst laufen die Außen bei jedem Ballwechsel quer über die Seitenlinie. */
+const WIDE_ATT = 0.95;
+const WIDE_DEF_NEAR = 0.88;       // ballnahe Seite bleibt breit
+const WIDE_DEF_FAR = 0.46;        // ballferne Seite rückt ein
+
+const ROLE_INTERVAL = 0.25;       // s Spielzeit zwischen zwei Rollenvergaben
 const KEEPER_OUT_MAX = 13;        // maximaler Torwart-Auslauf
 const WOBBLE_AMP = 0.32;          // Zappeln im Stand (Meter)
 const WOBBLE_SPEED = 1.7;
-const STRIDE_RATE = 0.16;         // Laufanimation: Schrittfrequenz je m/s
 const RUN_POSE_SPEED = 0.9;       // ab dieser Geschwindigkeit gilt „Lauf"
-const ACTION_POSE_AT = 0.58;      // ab welchem Phasenfortschritt die Aktionspose greift
+const LOOK_RUN_SPEED = 4.6;       // ab hier schaut der Spieler in die Laufrichtung
+const LOOK_DEADZONE = 0.35;       // m: darunter wird die Blickrichtung nicht gewechselt
+const STRIDE_MIN = 1.5;           // m je Schrittzyklus
+const STRIDE_MAX = 4.6;
+const ACTION_POSE_LEN = 0.22;     // Anteil der Phase, den eine Aktionspose dauert
+const ACTION_POSE_DIST = 2.6;     // m: Aktionsposen brauchen den Ball in Reichweite
 
 /* Aktion aus phase.actors → Pose für drawPlayer() (Keys aus render/players.js) */
 const ACTION_POSE = {
@@ -151,19 +212,52 @@ const ACTION_POSE = {
   kopfball: 'kopfball'
 };
 
-/* --- Ball --- */
-const BALL_RADIUS_M = 0.42;       // optisch vergrößert (real 0.11 m wäre unsichtbar)
-const BALL_LIFT = 0.62;           // Bildschirmversatz je Meter Flughöhe
-const BALL_SHADOW_DX = 0.16;      // Schattenversatz je Meter Höhe (Sonne links oben)
-const BALL_SHADOW_DY = 0.11;
-const BALL_SPIN = 0.55;           // Umdrehungen je zurückgelegtem Meter
-const BALL_TRAIL = 9;             // Länge der Flugspur
-const LOFT_LONG_DIST = 24;        // ab dieser Passlänge fliegt der Ball hoch
-const LOFT_MED_DIST = 13;
-const LOFT_FACTOR = 0.15;         // Scheitelhöhe = Distanz × Faktor
-const LOFT_MAX = 9.5;
-const LOFT_SET_PIECE = 0.19;      // Standards fliegen höher
-const LOFT_HEADER = 2.4;          // Mindesthöhe vor einem Kopfball
+/* --- Ball (Höhenkonvention siehe Dateikopf) --- */
+const BALL_RADIUS_M = 0.30;       // optisch vergrößert (real 0.11 m wäre unsichtbar)
+const BALL_LIFT = 0.62;           // Bildschirmversatz je Meter Flughöhe (gesättigt)
+const BALL_LIFT_SAT = 12;         // Sättigungshöhe: lift = LIFT·z/(1+z/SAT)
+const BALL_SHADOW_DX = 0.26;      // Schattenversatz je Meter Höhe (Sonne links oben)
+const BALL_SHADOW_DY = 0.18;
+const BALL_ROLL_SPIN = 1 / BALL_RADIUS_M;  // rad je zurückgelegtem Meter am Boden (3,33)
+const BALL_AIR_SPIN = 0.40;       // rad je Meter in der Luft (Ball dreht sich träger)
+const BALL_AIR_Z = 0.05;          // ab dieser Höhe gilt „in der Luft"
+const TRAIL_SECONDS = 0.18;       // Lebensdauer eines Spurpunkts (Spielzeit)
+const TRAIL_MIN_SPEED = 7;        // m/s: darunter gibt es keine Spur
+const TRAIL_MAX = 24;             // Ringpuffergröße (keine Allokation im Frame)
+
+/* Segmenttyp-Heuristik für den ALTPFAD (phase.v < 2): aus der Segmentlänge wird
+ * ein Typ aus ballistik.SEGMENT_TYPEN geraten, die Scheitelhöhe kommt danach aus
+ * der Ballistik. Die früheren LOFT_*-Faktoren (Scheitel = Distanz × Faktor, ohne
+ * Kopplung an die Flugzeit) sind damit ersatzlos entfallen. */
+const TYP_DIST_LANG = 24;         // ab dieser Länge ist es eine Flanke
+const TYP_DIST_MITTEL = 13;       // ab dieser Länge ein Steilpass
+const TYP_DIST_KURZ = 4;          // darunter Dribbling
+/* Eine von der Engine GESETZTE Scheitelhöhe (seg.height) wird nur noch in ihren
+ * Betrag geklemmt — es gibt keine Schwelle mehr, unterhalb derer sie als „nicht
+ * gesetzt" durchgeht. `0` heißt laut Vertrag §6.2 flach und wird auch so
+ * gezeichnet; nur ein FEHLENDES Feld überlässt die Höhe der Ballistik.
+ * HOEHE_MIN ist ausdrücklich KEINE solche Schwelle, sondern die Untergrenze für
+ * den Betrag einer bereits als positiv erkannten Höhe: unter 15 cm liefert der
+ * Scheitel-Löser keine brauchbare Bahn mehr. Die Unterscheidung „gesetzt /
+ * nicht gesetzt" fällt allein über `typeof`, nicht über eine Zahl — sonst wäre
+ * eine ausdrückliche 0 wieder von einem fehlenden Feld ununterscheidbar.
+ * Die kleinste positive Höhe, die die Engine heute schreibt, ist 0,6 m
+ * (Schuss/Parade); HOEHE_MIN greift also nur gegen krumme Fremddaten. */
+const HOEHE_MIN = 0.15;           // m: Untergrenze einer positiv gesetzten Höhe
+const HOEHE_MAX = 24;             // m: Obergrenze (darüber ist es kein Fußball mehr)
+
+/* Getretene Flachbälle: `segmentFlug` legt die Bahn so, dass der ERSTE
+ * Bodenkontakt genau auf dem Zielpunkt liegt — ein 30-m-Ball käme damit ohne
+ * einen einzigen Aufsetzer an. Für die getretenen Bodenbälle wird deshalb eine
+ * flache Scheitelhöhe vorgegeben; dann setzt der Ball früh auf und hoppelt
+ * sichtbar bis zum Ziel. Das gilt für „height fehlt" wie für „height = 0" —
+ * beides ist ein flacher Ball, und 18–65 cm Wellenhöhe SIND flach. Nur eine
+ * ausdrücklich POSITIVE Höhe der Engine hat Vorrang. */
+const HUEPF_TYPEN = { pass_flach: 1, steilpass: 1 };
+const HUEPF_MIN_DIST = 8;         // m: darunter lohnt kein Hoppeln
+const HUEPF_FAKTOR = 0.014;       // Scheitel = 1,4 % der Länge …
+const HUEPF_MIN = 0.18;           // … mindestens 18 cm …
+const HUEPF_MAX = 0.65;           // … höchstens 65 cm
 
 /* --- Spieler-Sprites --- */
 const PLAYER_VIS_HEIGHT_M = 2.7;  // visuell überhöhte „Körpergröße" für Lesbarkeit
@@ -172,14 +266,31 @@ const PLAYER_SCALE_MIN = 0.16;
 const PLAYER_SCALE_MAX = 1.6;
 const LABEL_MIN_PX = 6;           // darunter wird gar nicht beschriftet
 const LABEL_NAME_MIN_PX = 8;      // darunter nur die Rückennummer
-const CARRIER_RADIUS = 2.8;       // Ballnähe für die Ballführenden-Markierung
+const CARRIER_RADIUS = 1.6;       // Ballnähe für die Ballführenden-Markierung
+const CARRIER_MAX_Z = 0.8;        // darüber führt niemand den Ball, er fliegt
 
-/* --- Kamera --- */
+/* --- Kamera ---
+ * Hysterese statt Schwelle (sonst pumpt der Zoom im Sekundentakt), Vorhalt statt
+ * Nachlaufen, Glättung auf SPIELZEIT (sonst zieht Tempo 4 die Kamera hinterher).
+ * Die Anschläge greifen am ZIEL, nicht an cam.* — nur so lässt sich ein Tor
+ * zentrieren, ohne dass der Glätter gegen den Anschlag arbeitet. */
 const CAM_SMOOTH = 2.8;
-const CAM_ZOOM_ACTION = 1.55;
+const CAM_LEAD = 1 / CAM_SMOOTH;  // s Vorhalt (0,357) — passt zur Glättungszeit
+const CAM_ZOOM_AUFBAU = 1.0;
+const CAM_ZOOM_KONTER = 1.3;
+const CAM_ZOOM_ACTION = 2.3;      // Angriff und Standard
 const CAM_ZOOM_GOAL = 2.1;
-const CAM_HOLD_MS = 700;          // Nachlauf, damit der Zoom nicht zappelt
-const FINAL_THIRD = 32;           // Meter vom Tor: ab hier wird cineastisch gezoomt
+const CAM_KONTER_LEAD = 8;        // m Vorhalt in Laufrichtung
+const CAM_KONTER_SMOOTH = 1.5;    // Faktor auf CAM_SMOOTH
+const CAM_HOLD_MS = 1400;         // Nachlauf, damit der Zoom nicht zappelt
+const CAM_OVERSCAN = 24;          // m, die die Kamera über das Stadion hinausdarf
+const CAM_TOTALE_SPEED = 6;       // ab diesem Tempo bleibt die Kamera auf Totale
+const FINAL_THIRD_IN = 30;        // Meter vom Tor: ab hier wird cineastisch gezoomt
+const FINAL_THIRD_OUT = 40;       // … und erst hier wieder aufgezogen
+
+/* --- Ablauf --- */
+const PHASE_MIN_SECONDS = 0.30;   // kürzeste Realzeit einer Phase (statt Überspringen)
+const DETAIL_OFF_SPEED = 6;       // ab hier: keine Spur, kein Flimmern, kein Rauschen
 
 /* --- HUD / Banner --- */
 const HUD_RESERVE = 58;           // reservierte Bildschirmhöhe oben
@@ -187,7 +298,6 @@ const HUD_BAR_H = 34;
 const HUD_CLOCK_W = 78;
 const HUD_CLOCK_H = 20;
 const BANNER_DEFAULT_MS = 2000;
-const BANNER_MAX_SPEEDUP = 4;     // Banner werden höchstens 4× schneller ausgeblendet
 const CONFETTI_COUNT = 150;
 const CONFETTI_GRAVITY = 640;     // px/s²
 const CELEBRATE_MS = 2600;
@@ -295,6 +405,228 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + rr);
   ctx.quadraticCurveTo(x, y, x + rr, y);
   ctx.closePath();
+}
+
+/* ===========================================================================
+ * 2b. REINE HELFER — exportiert, DOM-frei, von tools/test-buehne.js geprüft
+ *
+ * Alles, was die Bühne an Spiellogik rechnet (Kettentiefe, Abseitsbezug,
+ * Breitenskalierung, Torwartposition, Kameraziel, Notbremse), steht hier als
+ * seiteneffektfreie Funktion. Der Renderer ruft sie nur noch auf.
+ * ========================================================================= */
+
+/**
+ * Ziel-Tiefe der Abwehrkette in Metern vom EIGENEN Tor.
+ * @param {number} ballTiefe  Abstand des Balls vom eigenen Tor in Angriffsrichtung (0…105)
+ * @param {boolean} inBallbesitz
+ */
+export function kettenTiefe(ballTiefe, inBallbesitz) {
+  const lo = inBallbesitz ? BLOCK_DEPTH_ATT_LOW : BLOCK_DEPTH_DEF_LOW;
+  const hi = inBallbesitz ? BLOCK_DEPTH_ATT_HIGH : BLOCK_DEPTH_DEF_HIGH;
+  const u = clamp(isFinite(ballTiefe) ? ballTiefe / PITCH_L : 0, 0, 1);
+  return lerp(lo, hi, u);
+}
+
+/**
+ * Abseitsbezug der angreifenden Seite: die x-Koordinate, an der ihre Stürmer
+ * kleben dürfen — letzter gegnerischer FELDspieler plus OFFSIDE_TOLERANZ in
+ * Angriffsrichtung.
+ * @param {number} tiefsteGegnerX  x des letzten gegnerischen Feldspielers
+ * @param {number} dir             Angriffsrichtung, +1 (Heim) oder −1 (Gast)
+ */
+export function abseitsBezug(tiefsteGegnerX, dir) {
+  const d = dir < 0 ? -1 : 1;
+  const x = isFinite(tiefsteGegnerX) ? tiefsteGegnerX : PITCH_L / 2;
+  return clamp(x + d * OFFSIDE_TOLERANZ, 1.2, PITCH_L - 1.2);
+}
+
+/**
+ * Breitenskalierung um die Feldmitte. In Ballbesitz bleibt die Mannschaft breit,
+ * beim Verteidigen rückt die BALLFERNE Seite ein — deshalb eine Skalierung und
+ * keine Verschiebung: sonst wandert die ganze Reihe über die Seitenlinie.
+ */
+export function breitenSkala(inBallbesitz, baseY, ballY) {
+  if (inBallbesitz) return WIDE_ATT;
+  const my = PITCH_W / 2;
+  const b = isFinite(baseY) ? baseY : my;
+  const q = isFinite(ballY) ? ballY : my;
+  const nah = clamp(0.5 + ((b - my) * (q - my)) / 240, 0, 1);
+  return lerp(WIDE_DEF_FAR, WIDE_DEF_NEAR, nah);
+}
+
+/**
+ * Torwartposition auf der Ball-Tor-Achse (nicht auf der x-Tiefe: sonst steht der
+ * Keeper bei einem Ball von der Seite neben dem Pfosten). y bleibt immer
+ * innerhalb der Torbreite ± 0,4 m.
+ */
+export function torwartZiel(ballX, ballY, eigenesTorX, out) {
+  const r = out || { x: 0, y: 0 };
+  const my = PITCH_W / 2;
+  const gx = eigenesTorX > PITCH_L / 2 ? PITCH_L : 0;
+  let dx = (isFinite(ballX) ? ballX : PITCH_L / 2) - gx;
+  let dy = (isFinite(ballY) ? ballY : my) - my;
+  const d = Math.hypot(dx, dy);
+  if (d < 1e-6) { dx = gx > 0 ? -1 : 1; dy = 0; }
+  else { dx /= d; dy /= d; }
+  const auslauf = clamp(1.8 + d * 0.10, 1.2, KEEPER_OUT_MAX);
+  r.x = clamp(gx + dx * auslauf, 0.4, PITCH_L - 0.4);
+  r.y = clamp(my + dy * auslauf, my - (GOAL_HALF_W + 0.4), my + (GOAL_HALF_W + 0.4));
+  return r;
+}
+
+/** Zoomstufe je Phasenart. Unbekannte Arten ('abwehr', 'uebergang') = Aufbau. */
+const ZOOM_JE_ART = {
+  aufbau: CAM_ZOOM_AUFBAU,
+  konter: CAM_ZOOM_KONTER,
+  angriff: CAM_ZOOM_ACTION,
+  standard: CAM_ZOOM_ACTION
+};
+
+/**
+ * Kameraziel und Brennweite — rein geometrisch, OHNE Anschläge (die macht
+ * kameraKlemme, und zwar am Ziel statt an der Kameraposition).
+ *
+ * @param {object} o {cinematic, tempo, aktiv, kind, hot, jubel, jubelX, jubelY,
+ *                    standX, standY, ballX, ballY, ballVx, ballVy}
+ * @param {object} [out] wiederverwendetes Ergebnisobjekt (keine Allokation im Frame)
+ * @returns {{x:number,y:number,zoom:number,smooth:number}}
+ */
+export function kameraZiel(o, out) {
+  const r = out || { x: 0, y: 0, zoom: 1, smooth: CAM_SMOOTH };
+  r.smooth = CAM_SMOOTH;
+  const tempo = clamp(isFinite(o.tempo) ? o.tempo : 1, 0.25, 16);
+  const bx = isFinite(o.ballX) ? o.ballX : PITCH_L / 2;
+  const by = isFinite(o.ballY) ? o.ballY : PITCH_W / 2;
+
+  // Ab Tempo 6 gibt es keine Kamerafahrt mehr — sie wäre nur noch Zucken.
+  if (o.cinematic === false || tempo >= CAM_TOTALE_SPEED) {
+    r.x = WORLD_CX; r.y = WORLD_CY; r.zoom = 1;
+    return r;
+  }
+  if (o.jubel) {
+    r.x = isFinite(o.jubelX) ? o.jubelX : bx;
+    r.y = isFinite(o.jubelY) ? o.jubelY : by;
+    r.zoom = CAM_ZOOM_GOAL;
+    return r;
+  }
+
+  const art = o.aktiv ? (ZOOM_JE_ART[o.kind] !== undefined ? o.kind : 'aufbau') : null;
+
+  // Standard: die Kamera steht auf dem Ausführungsort, nicht auf dem rollenden Ball.
+  if (art === 'standard') {
+    r.x = isFinite(o.standX) ? o.standX : bx;
+    r.y = isFinite(o.standY) ? o.standY : by;
+    r.zoom = CAM_ZOOM_ACTION;
+    return r;
+  }
+
+  const vx = isFinite(o.ballVx) ? o.ballVx : 0;
+  const vy = isFinite(o.ballVy) ? o.ballVy : 0;
+  let tx = bx + vx * CAM_LEAD;
+  let ty = by + vy * CAM_LEAD;
+
+  if (art === 'konter') {
+    const s = Math.hypot(vx, vy);
+    if (s > 0.5) { tx = bx + (vx / s) * CAM_KONTER_LEAD; ty = by + (vy / s) * CAM_KONTER_LEAD; }
+    r.x = tx; r.y = ty;
+    r.zoom = o.hot ? CAM_ZOOM_ACTION : CAM_ZOOM_KONTER;
+    r.smooth = CAM_SMOOTH * CAM_KONTER_SMOOTH;
+    return r;
+  }
+  if (art === 'angriff') {
+    r.x = tx; r.y = ty; r.zoom = CAM_ZOOM_ACTION;
+    return r;
+  }
+  if (art === 'aufbau') {
+    if (o.hot) { r.x = tx; r.y = ty; r.zoom = CAM_ZOOM_ACTION; return r; }
+    // Aufbau: halb Ball, halb Feldmitte — man sieht, wohin gespielt werden kann.
+    r.x = (tx + PITCH_L / 2) / 2;
+    r.y = (ty + PITCH_W / 2) / 2;
+    r.zoom = CAM_ZOOM_AUFBAU;
+    return r;
+  }
+  // Keine Phase: solange die Hysterese heiß ist, bleibt die Kamera am Ball.
+  if (o.hot) { r.x = tx; r.y = ty; r.zoom = CAM_ZOOM_ACTION; return r; }
+  r.x = WORLD_CX; r.y = WORLD_CY; r.zoom = 1;
+  return r;
+}
+
+/**
+ * Anschläge am KAMERAZIEL. halbW/halbH sind die halbe Sichtbreite/-höhe in Metern
+ * bei der ZIEL-Brennweite. CAM_OVERSCAN erlaubt es, ein Tor zu zentrieren.
+ */
+export function kameraKlemme(x, y, halbW, halbH, out) {
+  const r = out || { x: 0, y: 0 };
+  const minX = WX0 - CAM_OVERSCAN + halbW, maxX = WX1 + CAM_OVERSCAN - halbW;
+  const minY = WY0 - CAM_OVERSCAN + halbH, maxY = WY1 + CAM_OVERSCAN - halbH;
+  r.x = minX > maxX ? WORLD_CX : clamp(x, minX, maxX);
+  r.y = minY > maxY ? WORLD_CY : clamp(y, minY, maxY);
+  return r;
+}
+
+/**
+ * WANDUHR-NOTBREMSE (Pflicht), Teil 1: das Budget fortschreiben.
+ *
+ * `screens/spieltag.js` wartet ohne Timeout-Race auf das Promise von playPhase();
+ * bliebe eine Phase hängen (Tab im Hintergrund, ausgebremster Timer, Bildrate im
+ * Keller), hinge das ganze Spiel. Grenze: doppelte erwartete Dauer plus 2 s.
+ *
+ * Gezählt wird aber NICHT die absolute Wanduhrzeit seit Phasenbeginn, sondern der
+ * ANTEIL des Budgets, den jeder Frame beim GERADE eingestellten Tempo verbraucht.
+ * Der Grund ist ein Fehlauslöser: die Grenze schrumpft mit steigendem Tempo
+ * (dur/tempo), die bereits aufgelaufene Zeit tut das nicht. Wer mitten in einer
+ * langsam laufenden Phase auf Tempo 8 stellt, risse sie sonst schlagartig ab —
+ * die Notbremse ist sicherheitskritisch, darf aber kein normales Bedienen
+ * bestrafen. Tempo-normiert bleibt Verbrauchtes verbraucht, und nur der Rest
+ * läuft ab jetzt schneller ab.
+ *
+ * `dtWanduhr` ist die ECHTE, ungedeckelte Framezeit — dt wird in tick() auf 0,12 s
+ * geklemmt, die Notbremse darf davon nichts mitbekommen.
+ *
+ * @param {number} verbraucht  bisheriger Budgetanteil (0 beim ersten Frame)
+ * @param {number} dtWanduhr   Sekunden Wanduhr seit dem letzten Frame
+ * @param {number} dur         Phasendauer in Spielsekunden
+ * @param {number} tempo       gerade eingestelltes Tempo
+ * @returns {number} neuer Budgetanteil
+ */
+export function notbremseAnteil(verbraucht, dtWanduhr, dur, tempo) {
+  const v = isFinite(verbraucht) && verbraucht > 0 ? verbraucht : 0;
+  if (!isFinite(dtWanduhr) || dtWanduhr <= 0 || !isFinite(dur) || dur <= 0) return v;
+  const s = clamp(isFinite(tempo) && tempo > 0 ? tempo : 1, 0.25, 16);
+  const grenze = (dur / s) * 2 + 2;   // Sekunden Wanduhr, die BEI DIESEM Tempo erlaubt sind
+  return v + dtWanduhr / grenze;
+}
+
+/**
+ * WANDUHR-NOTBREMSE, Teil 2: ist das Budget aufgebraucht? Bei gleichbleibendem
+ * Tempo ist das exakt nach `dur/tempo · 2 + 2` Sekunden Wanduhr der Fall.
+ */
+export function phaseNotbremse(verbraucht) {
+  return isFinite(verbraucht) && verbraucht >= 1;
+}
+
+/**
+ * Bildschirmversatz des Balls in METERN je Flughöhe (siehe Höhenkonvention im
+ * Dateikopf). Sättigt, damit eine hohe Flanke nicht aus dem Bild wandert.
+ */
+export function ballLift(z) {
+  const h = isFinite(z) && z > 0 ? z : 0;
+  return BALL_LIFT * h / (1 + h / BALL_LIFT_SAT);
+}
+
+/**
+ * Segmenttyp aus der Geometrie — nur für den ALTPFAD (phase.v < 2). Bei v2
+ * kommt der Typ aus seg.type.
+ * @returns {string} Schlüssel aus ballistik.SEGMENT_TYPEN
+ */
+export function segmentTyp(dist, phaseKind, istErstes, kopfballFolgt) {
+  const d = isFinite(dist) ? dist : 0;
+  if (kopfballFolgt) return 'flanke';
+  if (phaseKind === 'standard' && istErstes && d >= 7) return d >= TYP_DIST_LANG ? 'flanke' : 'freistoss';
+  if (d < TYP_DIST_KURZ) return 'dribbling';
+  if (d >= TYP_DIST_LANG) return 'flanke';
+  if (d >= TYP_DIST_MITTEL) return 'steilpass';
+  return 'pass_flach';
 }
 
 /** Anstoß-Panel: 2 px Outset-Bevel, hell oben/links, dunkel unten/rechts. */
@@ -530,81 +862,232 @@ function pickEleven(matchTeam) {
 }
 
 /* ===========================================================================
- * 5. BALLWEG
+ * 5. BALLWEG — echte Ballistik statt geratener Loft-Kurven
+ *
+ * Je Segment wird EINMAL beim Anlegen der Phase `ballistik.segmentFlug()`
+ * gerufen; der fertige Flug (inkl. Aufsetzern und Rollphase) wird gespeichert.
+ * Im Frame wird nur noch `flug.at()` ausgewertet — kein Integrator in der
+ * rAF-Schleife, keine Allokation.
+ *
+ * Zeitabbildung: Die Simulation gibt jedem Segment ein Zeitfenster [t0, t1]
+ * (Vertrag §6.2: „der Renderer rechnet mit t0/t1"). Der Flug hat seine eigene,
+ * physikalische Dauer bis zum Zielpunkt (`tEnde`). Der lokale Fortschritt u des
+ * Segments wird deshalb auf `u · tEnde` abgebildet: die FORM der Bahn (Aufsetzer,
+ * Ausrollen, Scheitel) ist physikalisch, die DAUER kommt aus der Simulation.
+ * Die zurückgelegte Strecke wird auf die Segmentlänge normiert, damit der Ball
+ * am Segmentende exakt auf `to` liegt.
  * ========================================================================= */
 
-/** Scheitelhöhe eines Ballwegsegments in Metern (Flanken/Standards fliegen hoch). */
-function segmentHeight(a, b, phase, index, lastIndex, headerNext) {
-  const d = Math.hypot(b.x - a.x, b.y - a.y);
-  let h = 0;
-  if (d >= LOFT_LONG_DIST) h = clamp(d * LOFT_FACTOR, 2, LOFT_MAX);
-  else if (d >= LOFT_MED_DIST && index === lastIndex) h = d * 0.1;
-  if (phase && phase.kind === 'standard' && index === 0 && d >= 7) {
-    h = Math.max(h, Math.min(LOFT_MAX, d * LOFT_SET_PIECE));
+/**
+ * Baut den Ballweg einer Phase als Liste fertiger Flüge.
+ *
+ * @param {object} phase
+ * @param {boolean} nutzeSegmente  DIE eine Verzweigung (Vertrag §6.2)
+ * @param {number} fromX  aktuelle Ballposition (Startpunkt, falls die Phase keinen nennt)
+ * @param {number} fromY
+ * @returns {{segs:Array,akustik:Array}|null}
+ */
+function buildBallPath(phase, nutzeSegmente, fromX, fromY) {
+  const roh = [];
+
+  if (nutzeSegmente) {
+    const segs = phase.segments;
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      // Unvollständige Segmente werden übersprungen, nicht geworfen (Vertrag §6.2/3).
+      if (!s || !s.from || !s.to) continue;
+      if (!isFinite(s.from.x) || !isFinite(s.from.y) || !isFinite(s.to.x) || !isFinite(s.to.y)) continue;
+      const t0 = clamp(isFinite(s.t0) ? s.t0 : 0, 0, 1);
+      const t1 = clamp(isFinite(s.t1) ? s.t1 : 1, 0, 1);
+      roh.push({
+        von: { x: clamp(s.from.x, -3, PITCH_L + 3), y: clamp(s.from.y, -3, PITCH_W + 3) },
+        nach: { x: clamp(s.to.x, -3, PITCH_L + 3), y: clamp(s.to.y, -3, PITCH_W + 3) },
+        t0, t1: Math.max(t1, t0),
+        typ: SEGMENT_TYPEN[s.type] ? s.type : (s.type === 'ruecklage' ? 'pass_flach' : null),
+        // seg.height ist die Scheitelhöhe. Der Vertrag (§6.2) ist wörtlich:
+        // „0 = flach". Unterschieden wird deshalb ausschließlich zwischen
+        //   FELD FEHLT  (undefined/null/NaN) ⇒ null ⇒ die Ballistik des
+        //               Segmenttyps entscheidet, und
+        //   FELD GESETZT (jede endliche Zahl, 0 eingeschlossen) ⇒ die Engine hat
+        //               entschieden, der Renderer folgt.
+        // Es gibt keine Schwelle mehr, unterhalb derer eine gesetzte Höhe
+        // stillschweigend verworfen wird.
+        // (typeof-Prüfung mit Absicht: isFinite(null) ist true, und genau `null`
+        //  ist hier die Aussage „nicht gesetzt".)
+        //
+        // Die Engine trifft inzwischen alle drei Aussagen: `engine/match.js`
+        // schreibt in `segment()` das Feld nur noch, wenn `scheitelHoehe()`
+        // eine hat — Flanke und Klärung bekommen ein Scheitelprofil, alle
+        // übrigen Typen gar keins. Der Zweig „Feld fehlt" ist damit erreichbar
+        // und der Normalfall.
+        // Messung (8 Saatfolgen à 3 Spiele, 10 743 Segmente, Scheitel je Segment
+        // gegen `ballistik.segmentFlug()`, „flach" = Scheitel < 1,0 m): 3 121
+        // Segmente tragen ein height-Feld, 7 622 keins; flach gezeichnet werden
+        // 0,0 % der 1 183 Flanken (0,0 % in jeder einzelnen Saatfolge) und 0,0 %
+        // der 259 Klärungen — gegen 59,8 % (53,1–71,2 % je Saatfolge) bzw. 100 %
+        // im Altstand, als die Engine `height: o.height || 0` schrieb.
+        // Nachgemessen wird das bei jedem Lauf in `tools/test-buehne.js`,
+        // Abschnitt 16 (dort eine Saatfolge, sonst dasselbe Lineal).
+        hoehe: (typeof s.height === 'number' && isFinite(s.height)) ? Math.max(0, s.height) : null,
+        outcome: s.outcome || null
+      });
+    }
+    if (roh.length && roh[0].t0 > 0.001) roh[0].t0 = 0;
+  } else {
+    /* ---- ALTPFAD: ball[] ist die Wahrheit ------------------------------- */
+    const pts = (phase && Array.isArray(phase.ball) ? phase.ball : [])
+      .filter((p) => p && isFinite(p.x) && isFinite(p.y))
+      .map((p) => ({
+        x: clamp(p.x, -3, PITCH_L + 3),
+        y: clamp(p.y, -3, PITCH_W + 3),
+        t: clamp(isFinite(p.t) ? p.t : 0, 0, 1)
+      }))
+      .sort((a, b) => a.t - b.t);
+    if (!pts.length) return null;
+    if (pts[0].t > 0.001) pts.unshift({ x: fromX, y: fromY, t: 0 });
+    const letzt = pts[pts.length - 1];
+    if (letzt.t < 0.999) pts.push({ x: letzt.x, y: letzt.y, t: 1 });
+
+    const kopfIdx = (phase && Array.isArray(phase.actors))
+      ? phase.actors.findIndex((a) => a && a.action === 'kopfball')
+      : -1;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      // Kopfball ⇒ das letzte Segment davor ist eine Flanke.
+      const kopfballFolgt = kopfIdx >= 0 && i === pts.length - 2;
+      roh.push({
+        von: { x: a.x, y: a.y }, nach: { x: b.x, y: b.y },
+        t0: a.t, t1: b.t,
+        typ: segmentTyp(d, phase && phase.kind, i === 0, kopfballFolgt),
+        hoehe: null, outcome: null
+      });
+    }
   }
-  if (headerNext) h = Math.max(h, LOFT_HEADER);
-  // Flache Abschlüsse: der letzte Meter vor dem Tor bekommt einen kleinen Hüpfer.
-  if (index === lastIndex && h < 0.4 && d > 6) h = 0.5;
-  return h;
+
+  if (!roh.length) return null;
+
+  const segs = [];
+  const akustik = [];
+  for (const r of roh) {
+    const dx = r.nach.x - r.von.x, dy = r.nach.y - r.von.y;
+    const dist = Math.hypot(dx, dy);
+    const seg = {
+      von: r.von, nach: r.nach, t0: r.t0, t1: r.t1,
+      dist, dirX: dist > 1e-6 ? dx / dist : 1, dirY: dist > 1e-6 ? dy / dist : 0,
+      flug: null, tEnde: 0, sEnde: 0, outcome: r.outcome
+    };
+    const typ = r.typ && SEGMENT_TYPEN[r.typ] ? r.typ : null;
+    if (typ && dist > 0.2) {
+      try {
+        let hoehe = null;
+        let hoeheGeraten = false;   // vom Renderer abgeleitet ⇒ darf notfalls fallen
+        if (r.hoehe !== null && r.hoehe > 0) hoehe = clamp(r.hoehe, HOEHE_MIN, HOEHE_MAX);
+        else if (HUEPF_TYPEN[typ] && dist >= HUEPF_MIN_DIST) {
+          // „0 = flach" heißt bei einem GETRETENEN Bodenball nicht „schwebt über
+          // dem Rasen": ein flacher Ball springt auf kurzen Wellen (≤ 65 cm,
+          // ≤ 1,4 % der Länge). Das Hüpfen IST die Darstellung von flach — ohne
+          // es glitte ein 30-m-Pass ohne einen einzigen Bodenkontakt durch.
+          hoehe = clamp(dist * HUEPF_FAKTOR, HUEPF_MIN, HUEPF_MAX);
+          hoeheGeraten = true;
+        } else if (r.hoehe !== null) {
+          hoehe = 0;   // ausdrücklich flach (Vertrag §6.2)
+        }
+        let flug = bauFlug(r.von, r.nach, typ, hoehe);
+        let treffer = zeitBeiStrecke(flug, r.von.x, r.von.y, dist);
+        // Erreicht der Ball das Ziel gar nicht (sehr weite Bodenbälle), gilt die
+        // ungezwungene Bahn des Typs — sie kommt an, auch wenn sie höher fliegt.
+        // Nur für die GERATENE Hüpfhöhe: eine von der Engine gesetzte Höhe steht.
+        if (treffer.s < dist - 0.05 && hoeheGeraten) {
+          flug.freigeben();
+          flug = bauFlug(r.von, r.nach, typ, null);
+          treffer = zeitBeiStrecke(flug, r.von.x, r.von.y, dist);
+        }
+        if (treffer.t > 1e-4 && treffer.s > 1e-4) {
+          seg.flug = flug; seg.tEnde = treffer.t; seg.sEnde = treffer.s;
+          for (const a of flug.aufsetzer()) {
+            if (a.t > treffer.t) break;
+            const pt = seg.t0 + (a.t / treffer.t) * (seg.t1 - seg.t0);
+            akustik.push({ t: pt, art: 'aufsetzer', wucht: clamp(Math.abs(a.vz) / 9, 0, 1) });
+          }
+        } else {
+          flug.freigeben();
+        }
+      } catch (err) {
+        seg.flug = null;   // Ballistik verweigert ⇒ geradliniger Rückfall
+      }
+    }
+    segs.push(seg);
+  }
+  if (segs.length) { segs[0].t0 = 0; segs[segs.length - 1].t1 = 1; }
+  akustik.sort((a, b) => a.t - b.t);
+  return { segs, akustik };
+}
+
+/** Wiederverwendeter Zustandspuffer für flug.at() — keine Allokation im Frame. */
+const _flugZustand = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, v: 0 };
+
+/** Ein Segmentflug; `hoehe` null = die Ballistik des Typs entscheidet. */
+function bauFlug(von, nach, typ, hoehe) {
+  const opt = { tMax: 4.0 };
+  if (hoehe !== null) opt.hoehe = hoehe;
+  return segmentFlug({ x: von.x, y: von.y, z: 0 }, { x: nach.x, y: nach.y, z: 0 }, typ, opt);
 }
 
 /**
- * Normalisiert phase.ball zu einem auswertbaren Pfad.
- * @returns {{pts:Array<{x,y,t}>, heights:number[]}|null}
+ * Erster Zeitpunkt, zu dem der Flug `dist` Meter horizontal zurückgelegt hat.
+ * Wird der Punkt nie erreicht (Ball bleibt vorher liegen), zählt das Flugende.
+ * @returns {{t:number,s:number}}
  */
-function buildBallPath(phase, fromX, fromY) {
-  const raw = (phase && Array.isArray(phase.ball) ? phase.ball : [])
-    .filter((p) => p && isFinite(p.x) && isFinite(p.y))
-    .map((p) => ({
-      x: clamp(p.x, -3, PITCH_L + 3),
-      y: clamp(p.y, -3, PITCH_W + 3),
-      t: clamp(isFinite(p.t) ? p.t : 0, 0, 1)
-    }))
-    .sort((a, b) => a.t - b.t);
-
-  if (!raw.length) return null;
-  if (raw[0].t > 0.001) raw.unshift({ x: fromX, y: fromY, t: 0 });
-  const last = raw[raw.length - 1];
-  if (last.t < 0.999) raw.push({ x: last.x, y: last.y, t: 1 });
-
-  const headerIdx = (phase && Array.isArray(phase.actors))
-    ? phase.actors.findIndex((a) => a && a.action === 'kopfball')
-    : -1;
-
-  const heights = [];
-  for (let i = 0; i < raw.length - 1; i++) {
-    // Kopfball ⇒ das letzte Segment davor ist eine Flanke.
-    const headerNext = headerIdx >= 0 && i === raw.length - 2;
-    heights.push(segmentHeight(raw[i], raw[i + 1], phase, i, raw.length - 2, headerNext));
+function zeitBeiStrecke(flug, vonX, vonY, dist) {
+  const schritt = 1 / 60;
+  let tPrev = 0, sPrev = 0;
+  for (let t = schritt; t <= flug.dauer + 1e-9; t += schritt) {
+    flug.at(t, _flugZustand);
+    const s = Math.hypot(_flugZustand.x - vonX, _flugZustand.y - vonY);
+    if (s >= dist) {
+      const span = Math.max(1e-9, s - sPrev);
+      const u = clamp((dist - sPrev) / span, 0, 1);
+      return { t: tPrev + (t - tPrev) * u, s: dist };
+    }
+    tPrev = t; sPrev = s;
   }
-  return { pts: raw, heights };
+  return { t: flug.dauer, s: sPrev };
 }
 
-/** Catmull-Rom für weiche Ballwege. */
-function catmull(p0, p1, p2, p3, u) {
-  const u2 = u * u, u3 = u2 * u;
-  return 0.5 * ((2 * p1) + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
+/** Gibt alle Flüge eines Pfades an den Pool zurück. Doppelaufruf ist abgesichert. */
+function pfadFreigeben(path) {
+  if (!path || !path.segs) return;
+  for (const s of path.segs) {
+    if (s.flug) { s.flug.freigeben(); s.flug = null; }
+  }
 }
 
-/** Ballposition + Flughöhe zum relativen Zeitpunkt t (0…1). */
-function samplePath(path, t) {
-  const pts = path.pts;
+/**
+ * Ballposition und Flughöhe zum relativen Phasenzeitpunkt t (0…1).
+ * Schreibt in `out` (kein neues Objekt je Frame).
+ */
+function samplePath(path, t, out) {
+  const segs = path.segs;
   const tt = clamp(t, 0, 1);
   let i = 0;
-  while (i < pts.length - 2 && tt > pts[i + 1].t) i++;
-  const a = pts[i], b = pts[i + 1] || pts[i];
-  const span = Math.max(1e-6, b.t - a.t);
-  const u = clamp((tt - a.t) / span, 0, 1);
-  const p0 = pts[i - 1] || a;
-  const p3 = pts[i + 2] || b;
-  const x = catmull(p0.x, a.x, b.x, p3.x, u);
-  const y = catmull(p0.y, a.y, b.y, p3.y, u);
-  const h = path.heights[i] || 0;
-  return {
-    x: clamp(x, -3, PITCH_L + 3),
-    y: clamp(y, -3, PITCH_W + 3),
-    z: 4 * h * u * (1 - u)
-  };
+  while (i < segs.length - 1 && tt > segs[i].t1) i++;
+  const s = segs[i];
+  const u = clamp((tt - s.t0) / Math.max(1e-6, s.t1 - s.t0), 0, 1);
+
+  if (!s.flug) {
+    out.x = lerp(s.von.x, s.nach.x, u);
+    out.y = lerp(s.von.y, s.nach.y, u);
+    out.z = 0;
+    return out;
+  }
+  s.flug.at(u * s.tEnde, _flugZustand);
+  const gefahren = Math.hypot(_flugZustand.x - s.von.x, _flugZustand.y - s.von.y);
+  const norm = s.sEnde > 1e-6 ? s.dist / s.sEnde : 1;
+  out.x = clamp(s.von.x + s.dirX * gefahren * norm, -3, PITCH_L + 3);
+  out.y = clamp(s.von.y + s.dirY * gefahren * norm, -3, PITCH_W + 3);
+  out.z = _flugZustand.z > 0 ? _flugZustand.z : 0;
+  return out;
 }
 
 /* ===========================================================================
@@ -637,8 +1120,11 @@ export function createPitchView(canvas, opts = {}) {
   let destroyed = false;
   let raf = 0;
   let lastTs = 0;
-  let nowMs = 0;          // interne Uhr (performance.now-Basis, nur Optik)
+  let nowMs = 0;          // Wanduhr (performance.now-Basis): Notbremse, Konfetti, Ränge
+  let gameMs = 0;         // SPIELZEIT: Banner, Jubel, Blitzlicht, Rollenvergabe
   let speed = 1;
+  let effSpeed = 1;       // tatsächlich benutztes Tempo (PHASE_MIN_SECONDS)
+  let bank = opts.bank || opts.sound || null;     // Klangbank (P10), rein optional
 
   const initialW = canvas.width || 960;
   const initialH = canvas.height || 600;
@@ -646,23 +1132,46 @@ export function createPitchView(canvas, opts = {}) {
   let viewX = 0, viewY = 0, viewW = initialW, viewH = initialH;
   let baseScale = 1;
 
-  const cam = { x: WORLD_CX, y: WORLD_CY, zoom: 1, holdUntil: 0 };
+  const cam = { x: WORLD_CX, y: WORLD_CY, zoom: 1, holdUntil: 0, hot: false };
+  const camZiel = { x: WORLD_CX, y: WORLD_CY, zoom: 1, smooth: CAM_SMOOTH };
+  const camKlemm = { x: WORLD_CX, y: WORLD_CY };
+  const camArg = {
+    cinematic: true, tempo: 1, aktiv: false, kind: null, hot: false,
+    jubel: false, jubelX: 0, jubelY: 0, standX: NaN, standY: NaN,
+    ballX: 0, ballY: 0, ballVx: 0, ballVy: 0
+  };
 
   const teams = {
-    home: { matchTeam: null, club: null, kit: null, ents: [], abbr: 'HEI' },
-    away: { matchTeam: null, club: null, kit: null, ents: [], abbr: 'GAS' }
+    home: {
+      matchTeam: null, club: null, kit: null, ents: [], abbr: 'HEI',
+      lineDepth: BLOCK_DEPTH_DEF_LOW, baseLineDepth: 20, offsideRef: PITCH_L / 2
+    },
+    away: {
+      matchTeam: null, club: null, kit: null, ents: [], abbr: 'GAS',
+      lineDepth: BLOCK_DEPTH_DEF_LOW, baseLineDepth: 20, offsideRef: PITCH_L / 2
+    }
   };
   let kits = resolveKits(null, null);
 
-  const ball = { x: PITCH_L / 2, y: PITCH_W / 2, z: 0, rot: 0, trail: [] };
+  /** Persistente Gesamtliste beider Mannschaften — allEnts() allokierte 3×/Frame. */
+  const entsAll = [];
+
+  const ball = { x: PITCH_L / 2, y: PITCH_W / 2, z: 0, vx: 0, vy: 0, rot: 0 };
+  /* Flugspur als Ringpuffer fester Größe: kein push/shift, keine Allokation. */
+  const trail = [];
+  for (let i = 0; i < TRAIL_MAX; i++) trail.push({ x: 0, y: 0, z: 0, alter: Infinity });
+  let trailKopf = 0;
+  const ballAbtast = { x: PITCH_L / 2, y: PITCH_W / 2, z: 0 };
   let possession = 'home';
 
-  let active = null;      // { phase, path, t, dur, resolve }
-  let banner = null;      // { text, t0, dur }
+  let active = null;      // { phase, path, t, dur, resolve, wallAnteil, akIdx, standAt }
+  let banner = null;      // { text, t0, dur }  — t0/dur auf SPIELZEIT
   let confetti = [];
   let celebrateUntil = 0;
   let celebrateAt = { x: PITCH_L / 2, y: PITCH_W / 2 };
   let flashBoost = 0;
+  let rollenUhr = 0;      // s Spielzeit bis zur nächsten Rollenvergabe
+  let rollenBucket = 0;   // Streuungseimer für hash01 (kein rng im Frame)
 
   let clock = { minute: 0, addedTime: 0, score: [0, 0] };
 
@@ -833,40 +1342,71 @@ export function createPitchView(canvas, opts = {}) {
   function buildEntities(side) {
     const t = teams[side];
     t.ents = [];
-    if (!t.matchTeam) return;
+    if (!t.matchTeam) { rebuildEntsAll(); return; }
     const eleven = pickEleven(t.matchTeam);
-    if (!eleven.length) return;
+    if (!eleven.length) { rebuildEntsAll(); return; }
     const slots = buildFormationSlots(t.matchTeam.tactics && t.matchTeam.tactics.formation);
     const bySlot = assignToSlots(eleven, slots.slice(0, eleven.length));
+    const attackDir = side === 'home' ? 1 : -1;
+    const ownGoalX = side === 'home' ? 0 : PITCH_L;
+    let abwSumme = 0, abwZahl = 0;
 
     for (let i = 0; i < bySlot.length; i++) {
       const p = bySlot[i];
       if (!p) continue;
       const slot = slots[i];
       const w = tacticToWorld(slot.x, slot.y, side);
+      const group = POSITION_GROUP[slot.pos] || 'MIT';
+      if (group === 'ABW') { abwSumme += (w.x - ownGoalX) * attackDir; abwZahl++; }
       t.ents.push({
         p,
         side,
         role: slot.pos,
-        group: POSITION_GROUP[slot.pos] || 'MIT',
+        group,
         isKeeper: slot.pos === 'TW' || p.position === 'TW',
         baseX: w.x, baseY: w.y,
+        baseTiefe: (w.x - ownGoalX) * attackDir,
         x: w.x, y: w.y,
+        // Echter Geschwindigkeitszustand statt Positionsfilter (Punkt 8).
+        vx: 0, vy: 0,
+        // Kennwerte EINMAL aus den Attributen — nicht pro Frame. Hier wird
+        // attributes.tempo endlich gelesen: 22 unterschiedlich schnelle Menschen.
+        kin: laufwerte(p && p.attributes ? {
+          tempo: p.attributes.tempo,
+          antritt: p.attributes.antritt !== undefined ? p.attributes.antritt
+            : Math.round(((p.attributes.tempo || 50) + (p.attributes.dribbling || 50)) / 2),
+          koerper: p.attributes.koerper,
+          fitness: p.fitness
+        } : null),
         startX: w.x, startY: w.y,
-        lastX0: w.x,
+        lookX: w.x + (side === 'home' ? 1 : -1), lookY: w.y,
         actorTarget: null,
         actorAction: null,
+        actorSkript: false,   // true = Altpfad (lerp+easeInOut, kein Integrator)
+        actorT0: 0, actorT1: 1,
+        aktionStart: null,    // Phasenfortschritt, bei dem die Aktionspose ansetzte
+        ballMoment: Infinity, // Phasenfortschritt, zu dem dieser Akteur den Ball spielt
+        rolle: null,
+        markX: 0, markY: 0,   // Zielpunkt der Rolle (Gegenspieler, Raum, …)
         dir: side === 'home' ? 1 : -1,
+        yaw: side === 'home' ? 0 : Math.PI,
         frame: hash01(i, side === 'home' ? 1 : 2),
         pose: 'stand',
         speedNow: 0,
+        idx: i,
         wobble: i * 1.31 + (side === 'home' ? 0 : 0.77)
       });
     }
+    t.baseLineDepth = abwZahl ? abwSumme / abwZahl : 20;
+    t.lineDepth = t.baseLineDepth;
+    rebuildEntsAll();
   }
 
-  function allEnts() {
-    return teams.home.ents.concat(teams.away.ents);
+  /** Gesamtliste neu füllen — nur bei setTeams/setFormationPositions, nie im Frame. */
+  function rebuildEntsAll() {
+    entsAll.length = 0;
+    for (const e of teams.home.ents) entsAll.push(e);
+    for (const e of teams.away.ents) entsAll.push(e);
   }
 
   function findEnt(playerId) {
@@ -876,98 +1416,257 @@ export function createPitchView(canvas, opts = {}) {
     return null;
   }
 
-  /* --- Spielerbewegung -------------------------------------------------- */
+  /* --- Mannschaftsverhalten --------------------------------------------- */
 
   /**
-   * Zielposition eines Spielers aus Grundordnung + Ballposition:
-   * Mannschaftsverschiebung, Kompaktheit, Abwehrkette/Abseitslinie, Torwartauslauf.
+   * EINE Kettentiefe und EIN Abseitsbezug je Mannschaft und Frame — nicht je
+   * Spieler. Nur so steht die Abwehr auf einer Linie und schiebt geschlossen.
    */
-  function formationTarget(e) {
+  function updateTeamLines(dtSpiel) {
+    for (const side of ['home', 'away']) {
+      const t = teams[side];
+      if (!t.ents.length) continue;
+      const attackDir = side === 'home' ? 1 : -1;
+      const ownGoalX = side === 'home' ? 0 : PITCH_L;
+      const inPoss = possession === side;
+
+      const ziel = kettenTiefe(clamp((ball.x - ownGoalX) * attackDir, 0, PITCH_L), inPoss);
+      const rate = ziel > t.lineDepth ? LINE_PUSH_RATE : LINE_DROP_RATE;
+      const d = clamp(ziel - t.lineDepth, -rate * dtSpiel, rate * dtSpiel);
+      t.lineDepth += d;
+
+      // Abseitsbezug: letzter Feldspieler der ANDEREN Mannschaft.
+      const gegner = teams[side === 'home' ? 'away' : 'home'];
+      let tiefste = ownGoalX + attackDir * 8;
+      let gefunden = false;
+      for (const g of gegner.ents) {
+        if (g.isKeeper) continue;
+        if (!gefunden || (g.x - tiefste) * attackDir > 0) { tiefste = g.x; gefunden = true; }
+      }
+      t.offsideRef = abseitsBezug(tiefste, attackDir);
+    }
+  }
+
+  /**
+   * Rollen alle ROLE_INTERVAL Sekunden Spielzeit neu vergeben. Streuung
+   * ausschließlich über hash01(index, bucket) — KEIN rng.next() im Frame, sonst
+   * hängt die Zahl der Züge an der Bildrate.
+   */
+  function updateRollen() {
+    rollenBucket++;
+    for (const side of ['home', 'away']) {
+      const t = teams[side];
+      if (!t.ents.length) continue;
+      const inPoss = possession === side;
+      const gegner = teams[side === 'home' ? 'away' : 'home'];
+
+      // Nach Ballnähe sortieren, ohne zu allokieren: zwei Durchgänge reichen.
+      let n1 = null, n2 = null, d1 = Infinity, d2 = Infinity;
+      for (const e of t.ents) {
+        if (e.isKeeper) { e.rolle = 'torwart'; continue; }
+        const d = Math.hypot(e.x - ball.x, e.y - ball.y);
+        if (d < d1) { d2 = d1; n2 = n1; d1 = d; n1 = e; }
+        else if (d < d2) { d2 = d; n2 = e; }
+      }
+      for (const e of t.ents) {
+        if (e.isKeeper) continue;
+        if (inPoss) {
+          if (e === n1) e.rolle = (d1 < 8 && ball.z < 2.2) ? 'carrier' : 'option';
+          else if (e === n2) e.rolle = 'option';
+          else if (e.group === 'ABW') e.rolle = 'absichern';
+          else e.rolle = hash01(e.idx, rollenBucket) < 0.35 ? 'overlap' : 'option';
+        } else {
+          if (e === n1) e.rolle = 'presser';
+          else if (e === n2 && d2 < 22) e.rolle = 'doppeln';
+          else if (e.group === 'ABW') e.rolle = 'block';
+          else e.rolle = 'mark';
+        }
+        // Manndeckung: nächster Gegner, aber nur alle 0,25 s neu bestimmt.
+        if (e.rolle === 'mark') {
+          let best = null, bd = 26;
+          for (const g of gegner.ents) {
+            if (g.isKeeper) continue;
+            const d = Math.hypot(g.x - e.x, g.y - e.y);
+            if (d < bd) { bd = d; best = g; }
+          }
+          if (best) { e.markX = best.x; e.markY = best.y; }
+          else e.rolle = 'block';
+        }
+      }
+    }
+  }
+
+  /* --- Spielerbewegung -------------------------------------------------- */
+
+  const _tgt = { x: 0, y: 0 };
+
+  /**
+   * Zielposition eines Spielers: Kette (eine Linie je Team), Breitenskalierung
+   * (ballferne Seite rückt ein), Kompaktheit, Abseitsbezug, Rolle.
+   * Schreibt in `out` — keine Allokation im Frame.
+   */
+  function formationTarget(e, out) {
     const attackDir = e.side === 'home' ? 1 : -1;
     const ownGoalX = e.side === 'home' ? 0 : PITCH_L;
     const inPoss = possession === e.side;
+    const t = teams[e.side];
 
-    if (e.isKeeper) {
-      const ballDepth = clamp((ball.x - ownGoalX) * attackDir, 0, PITCH_L);
-      const out = 2.4 + clamp(ballDepth * 0.09, 0, KEEPER_OUT_MAX);
-      return {
-        x: ownGoalX + attackDir * out,
-        y: clamp(PITCH_W / 2 + (ball.y - PITCH_W / 2) * 0.3, PITCH_W / 2 - 7, PITCH_W / 2 + 7)
-      };
-    }
+    if (e.isKeeper) return torwartZiel(ball.x, ball.y, ownGoalX, out);
 
-    const shiftX = (ball.x - PITCH_L / 2) * (inPoss ? TEAM_SHIFT_X_ATT : TEAM_SHIFT_X_DEF);
-    const shiftY = (ball.y - PITCH_W / 2) * TEAM_SHIFT_Y;
-    let tx = e.baseX + shiftX;
-    let ty = e.baseY + shiftY;
+    // Tiefe: alle hängen an DERSELBEN Kettentiefe. Die Kette selbst hält ihren
+    // Abstand strenger (ABW_LINE_BIND), die Reihen davor behalten ihre Staffelung.
+    const stretch = inPoss ? BLOCK_STRETCH_ATT : BLOCK_STRETCH_DEF;
+    const versatz = (e.baseTiefe - t.baseLineDepth) * stretch;
+    const tiefe = t.lineDepth + (e.group === 'ABW' ? versatz * ABW_LINE_BIND : versatz);
+    let tx = ownGoalX + attackDir * tiefe;
 
-    // Sog zum Ball – wer nah dran ist, rückt stärker heran.
-    const dist = Math.hypot(ball.x - e.baseX, ball.y - e.baseY);
+    // Breite: Skalierung um die Feldmitte plus Verschiebung zur Ballseite.
+    const skala = breitenSkala(inPoss, e.baseY, ball.y);
+    let ty = PITCH_W / 2 + (e.baseY - PITCH_W / 2) * skala + (ball.y - PITCH_W / 2) * TEAM_SHIFT_Y;
+
+    // Sog zum Ball — an der TATSÄCHLICHEN Position gemessen, nicht an baseX/baseY.
+    const dist = Math.hypot(ball.x - e.x, ball.y - e.y);
     const near = clamp(1 - dist / COMPACT_RADIUS, 0, 1);
     const pull = (inPoss ? COMPACT_ATT : COMPACT_DEF) * near;
     tx = lerp(tx, ball.x, pull);
     ty = lerp(ty, ball.y, pull);
 
-    // Abwehrkette / Abseitslinie
-    if (e.group === 'ABW') {
-      const ballDepth = (ball.x - ownGoalX) * attackDir;
-      const maxDepth = inPoss ? LINE_MAX_DEPTH_ATT : LINE_MAX_DEPTH_DEF;
-      const lineDepth = clamp(ballDepth - OFFSIDE_GAP, LINE_MIN_DEPTH, maxDepth);
-      const lineX = ownGoalX + attackDir * lineDepth;
-      tx = lerp(tx, lineX, LINE_BLEND);
+    // Rolle
+    const streu = hash01(e.idx + (e.side === 'home' ? 0 : 32), rollenBucket) - 0.5;
+    switch (e.rolle) {
+      case 'presser':
+        tx = ball.x - attackDir * 0.9; ty = ball.y; break;
+      case 'doppeln':
+        tx = lerp(tx, ball.x - attackDir * 2.8, 0.75);
+        ty = lerp(ty, ball.y + streu * 5, 0.75); break;
+      case 'mark':
+        tx = lerp(tx, e.markX - attackDir * 1.4, 0.7);
+        ty = lerp(ty, e.markY, 0.7); break;
+      case 'carrier':
+        tx = ball.x; ty = ball.y; break;
+      case 'option':
+        tx = lerp(tx, ball.x + attackDir * (7 + streu * 6), 0.45);
+        ty = lerp(ty, ball.y + streu * 18, 0.45); break;
+      case 'overlap':
+        tx = lerp(tx, ball.x + attackDir * 5, 0.5);
+        ty = lerp(ty, PITCH_W / 2 + (e.baseY - PITCH_W / 2 > 0 ? 27 : -27), 0.55); break;
+      case 'absichern':
+        tx = lerp(tx, ball.x - attackDir * 14, 0.35); break;
+      default: break;   // 'block': reine Grundordnung
     }
 
-    // Stürmer bleiben vorne, laufen aber nicht ins Abseits-Nirwana.
-    if (e.group === 'STU' && !inPoss) {
-      tx = lerp(tx, PITCH_L / 2 + attackDir * 12, 0.25);
-    }
+    // Abseitsbezug: die Spitzen der ballbesitzenden Seite kleben am letzten Mann.
+    if (inPoss && e.group === 'STU' && (tx - t.offsideRef) * attackDir > 0) tx = t.offsideRef;
 
-    return {
-      x: clamp(tx, 1.2, PITCH_L - 1.2),
-      y: clamp(ty, 1.2, PITCH_W - 1.2)
-    };
+    out.x = clamp(tx, 1.2, PITCH_L - 1.2);
+    out.y = clamp(ty, 1.2, PITCH_W - 1.2);
+    return out;
   }
 
-  function updatePlayers(dt, phaseT) {
-    const move = dt * speed;
-    for (const e of allEnts()) {
-      let tgt;
-      if (e.actorTarget) {
-        // Skriptierte Aktion: garantierte Ankunft bis zum Phasenende.
+  /**
+   * Ein Teilschritt der Spielerkinematik über core/ballistik.js.
+   * `lenke()` und `sprintSchritt()` sind BEIDE vollständige Zeitschritte — es
+   * darf pro Teilschritt genau einer laufen, sonst wird der Ort doppelt integriert.
+   */
+  function steer(e, tx, ty, dtStep) {
+    const dx = tx - e.x, dy = ty - e.y;
+    const d = Math.hypot(dx, dy);
+    const k = e.kin;
+    if (d < 1e-4) {
+      sprintSchritt(e, 0, 0, k, dtStep);
+    } else {
+      // Ankunftsgeschwindigkeit aus dem Bremsweg: wer ankommt, steht auch.
+      const vWish = Math.min(k.vmax, Math.sqrt(2 * k.aBrems * Math.max(0, d - BRAKE_MARGIN)));
+      const v = Math.hypot(e.vx, e.vy);
+      const zielRi = Math.atan2(dy, dx);
+      let dw = zielRi - Math.atan2(e.vy, e.vx);
+      while (dw > Math.PI) dw -= TAU;
+      while (dw < -Math.PI) dw += TAU;
+      const bogen = v > TURN_ARC_SPEED && Math.abs(dw) > TURN_ARC_MIN && Math.abs(dw) < TURN_ARC_MAX;
+      if (bogen) lenke(e, zielRi, k, dtStep);            // Laufbogen statt Wende auf der Stelle
+      else sprintSchritt(e, (dx / d) * vWish, (dy / d) * vWish, k, dtStep);
+    }
+    // Feldgrenzen: die betroffene Geschwindigkeitskomponente wird null.
+    if (e.x < -1) { e.x = -1; if (e.vx < 0) e.vx = 0; }
+    else if (e.x > PITCH_L + 1) { e.x = PITCH_L + 1; if (e.vx > 0) e.vx = 0; }
+    if (e.y < -1) { e.y = -1; if (e.vy < 0) e.vy = 0; }
+    else if (e.y > PITCH_W + 1) { e.y = PITCH_W + 1; if (e.vy > 0) e.vy = 0; }
+  }
+
+  function updatePlayers(dtSpiel, phaseT) {
+    const schritte = clamp(Math.ceil(dtSpiel / PHYS_STEP), 1, PHYS_MAX_STEPS);
+    const dtStep = dtSpiel / schritte;
+    const jubelt = celebrateUntil > gameMs;
+
+    for (const e of entsAll) {
+      if (e.actorTarget && e.actorSkript) {
+        /* ---- ALTPFAD (phase.v < 2): unverändert lerp + easeInOut ---------
+         * Die alte Engine platziert Akteure bis zu 40 m entfernt; ein
+         * begrenzter Integrator erzeugte hier einen sichtbaren Snap. */
         const k = easeInOut(clamp(phaseT, 0, 1));
-        tgt = { x: lerp(e.startX, e.actorTarget.x, k), y: lerp(e.startY, e.actorTarget.y, k) };
-        const dx = tgt.x - e.x, dy = tgt.y - e.y;
-        e.speedNow = move > 0 ? Math.hypot(dx, dy) / move : 0;
-        e.x = tgt.x; e.y = tgt.y;
+        const nx = lerp(e.startX, e.actorTarget.x, k);
+        const ny = lerp(e.startY, e.actorTarget.y, k);
+        const vx = dtSpiel > 0 ? (nx - e.x) / dtSpiel : 0;
+        const vy = dtSpiel > 0 ? (ny - e.y) / dtSpiel : 0;
+        e.speedNow = Math.hypot(vx, vy);
+        // Die gemerkte Geschwindigkeit wird auf vmax gedeckelt: nach der Phase
+        // übernimmt der Integrator, und der würde ein skriptiertes 40-m/s-Tempo
+        // erst über zwei Sekunden abbauen — der Spieler flöge vom Platz.
+        const f = e.speedNow > e.kin.vmax ? e.kin.vmax / e.speedNow : 1;
+        e.vx = vx * f; e.vy = vy * f;
+        e.x = nx; e.y = ny;
       } else {
-        tgt = formationTarget(e);
-        // Leichtes Zappeln, damit niemand wie angewurzelt steht.
-        tgt.x += Math.sin(nowMs / 1000 * WOBBLE_SPEED + e.wobble) * WOBBLE_AMP;
-        tgt.y += Math.cos(nowMs / 1000 * WOBBLE_SPEED * 0.83 + e.wobble * 1.7) * WOBBLE_AMP;
-        const dx = tgt.x - e.x, dy = tgt.y - e.y;
-        const d = Math.hypot(dx, dy);
-        if (d > 1e-4) {
-          let step = d * (1 - Math.exp(-PLAYER_SMOOTH * move));
-          const maxStep = PLAYER_MAX_SPEED * move;
-          if (step > maxStep) step = maxStep;
-          e.x += (dx / d) * step;
-          e.y += (dy / d) * step;
-          e.speedNow = move > 0 ? step / move : 0;
+        let tx, ty;
+        if (e.actorTarget) {
+          /* ---- v2: geführter Zielpunkt durch DENSELBEN Integrator -------- */
+          const span = Math.max(1e-3, e.actorT1 - e.actorT0);
+          const lp = easeInOut(clamp((phaseT - e.actorT0) / span, 0, 1));
+          tx = lerp(e.startX, e.actorTarget.x, lp);
+          ty = lerp(e.startY, e.actorTarget.y, lp);
         } else {
-          e.speedNow = 0;
+          formationTarget(e, _tgt);
+          // Leichtes Zappeln, damit niemand wie angewurzelt steht.
+          tx = _tgt.x + Math.sin(nowMs / 1000 * WOBBLE_SPEED + e.wobble) * WOBBLE_AMP;
+          ty = _tgt.y + Math.cos(nowMs / 1000 * WOBBLE_SPEED * 0.83 + e.wobble * 1.7) * WOBBLE_AMP;
         }
+        for (let s = 0; s < schritte; s++) steer(e, tx, ty, dtStep);
+        e.speedNow = Math.hypot(e.vx, e.vy);
       }
 
-      // Blickrichtung
-      if (Math.abs(e.x - e.lastX0) > 0.05) e.dir = e.x > e.lastX0 ? 1 : -1;
-      e.lastX0 = e.x;
+      /* --- Blick: im Sprint die Laufrichtung, sonst der Ball ---------------
+       * Die Totzone von 0,35 m sitzt am BLICKZIEL und noch einmal am Wechsel
+       * der Spiegelung. Damit ist auch das alte Flackern im Stand erledigt:
+       * bisher schob das Zappeln (WOBBLE_AMP) e.x über die 0,05-Schwelle und
+       * die Figuren klappten im Stehen mehrmals je Sekunde um. */
+      const zielX = e.speedNow > LOOK_RUN_SPEED ? e.x + e.vx : ball.x;
+      const zielY = e.speedNow > LOOK_RUN_SPEED ? e.y + e.vy : ball.y;
+      if (Math.hypot(zielX - e.lookX, zielY - e.lookY) > LOOK_DEADZONE) {
+        e.lookX = zielX; e.lookY = zielY;
+      }
+      if (Math.abs(e.lookX - e.x) > LOOK_DEADZONE) e.dir = e.lookX > e.x ? 1 : -1;
+      e.yaw = Math.atan2(e.lookY - e.y, e.lookX - e.x);
 
-      // Pose & Laufanimation
+      /* --- Pose ------------------------------------------------------------
+       * Die Aktionspose läuft EINMAL ab (frame aus dem Phasenfortschritt) statt
+       * zyklisch, und sie wird ausgelöst, wenn der Ball tatsächlich in Reichweite
+       * ist — nicht ab einem festen Fortschritt. Sonst schießt jemand ins Leere,
+       * während der Ball 30 m weiter liegt. */
+      if (e.actorAction && e.aktionStart === null && phaseT >= e.actorT0
+        && (phaseT >= e.ballMoment || Math.hypot(ball.x - e.x, ball.y - e.y) < ACTION_POSE_DIST)) {
+        e.aktionStart = phaseT;
+      }
       let pose = e.speedNow > RUN_POSE_SPEED ? 'lauf' : 'stand';
-      if (e.actorAction && phaseT >= ACTION_POSE_AT) pose = ACTION_POSE[e.actorAction] || pose;
-      if (celebrateUntil > nowMs && e.side === possession && !e.isKeeper) pose = 'jubel';
+      if (e.aktionStart !== null && phaseT >= e.aktionStart && phaseT <= e.aktionStart + ACTION_POSE_LEN) {
+        pose = ACTION_POSE[e.actorAction] || pose;
+        e.frame = clamp((phaseT - e.aktionStart) / ACTION_POSE_LEN, 0, 1);
+      } else {
+        // Schrittlänge in Metern je Zyklus: schnelle Läufer machen weite Schritte.
+        const stride = clamp(1.35 + 0.38 * e.speedNow, STRIDE_MIN, STRIDE_MAX);
+        e.frame = (e.frame + (e.speedNow * dtSpiel) / stride) % 1;
+      }
+      if (jubelt && e.side === possession && !e.isKeeper) pose = 'jubel';
       e.pose = pose;
-      e.frame = (e.frame + e.speedNow * move * STRIDE_RATE * 6) % 1;
+      e.gait = clamp(e.speedNow / 6.5, 0.45, 1.25);
     }
   }
 
@@ -976,14 +1675,20 @@ export function createPitchView(canvas, opts = {}) {
   function applyPhaseEnd() {
     if (!active) return;
     if (active.path) {
-      const s = samplePath(active.path, 1);
-      ball.x = s.x; ball.y = s.y; ball.z = 0;
-      ball.trail.length = 0;
+      samplePath(active.path, 1, ballAbtast);
+      ball.x = ballAbtast.x; ball.y = ballAbtast.y; ball.z = 0;
+      ball.vx = 0; ball.vy = 0;
+      trailLeeren();
+      pfadFreigeben(active.path);
+      active.path = null;
     }
-    for (const e of allEnts()) {
-      if (e.actorTarget) { e.x = e.actorTarget.x; e.y = e.actorTarget.y; }
+    for (const e of entsAll) {
+      // Altpfad: harter Endzustand (die alte Engine erwartet ihn).
+      // v2: der Integrator ist bereits dort — kein Teleport, das wäre sichtbar.
+      if (e.actorTarget && e.actorSkript) { e.x = e.actorTarget.x; e.y = e.actorTarget.y; }
       e.actorTarget = null;
       e.actorAction = null;
+      e.actorSkript = false;
     }
   }
 
@@ -997,11 +1702,32 @@ export function createPitchView(canvas, opts = {}) {
 
   function prepPhase(phase) {
     possession = phase && phase.team === 'away' ? 'away' : 'home';
-    for (const e of allEnts()) {
+
+    /* DIE eine Verzweigung (CONTRACTS §6.2). */
+    const nutzeSegmente = !!(phase && phase.v >= 2 && Array.isArray(phase.segments) && phase.segments.length);
+
+    for (const e of entsAll) {
       e.startX = e.x; e.startY = e.y;
       e.actorTarget = null;
       e.actorAction = null;
+      e.actorSkript = false;
+      e.actorT0 = 0; e.actorT1 = 1;
+      e.aktionStart = null;
+      e.ballMoment = Infinity;
     }
+    /* Wann berührt wer den Ball? Ein Segment beginnt (t0) damit, dass `by` den
+     * Ball spielt. Der Ballspieler muss also zu SEINEM t0 am Ball sein — nicht
+     * erst am Ende seines Akteursfensters, das laut Vertrag die ganze Phase
+     * umspannen darf. Sonst schießt er, wenn der Ball längst weg ist. */
+    const ballMoment = new Map();
+    if (nutzeSegmente) {
+      for (const s of phase.segments) {
+        if (!s || !s.by || !s.from || !s.to) continue;
+        const t = clamp(isFinite(s.t0) ? s.t0 : 0, 0, 1);
+        if (!ballMoment.has(s.by) || t < ballMoment.get(s.by)) ballMoment.set(s.by, t);
+      }
+    }
+
     const actors = phase && Array.isArray(phase.actors) ? phase.actors : [];
     for (const a of actors) {
       if (!a) continue;
@@ -1010,47 +1736,85 @@ export function createPitchView(canvas, opts = {}) {
       if (!isFinite(a.x) || !isFinite(a.y)) continue;
       e.actorTarget = { x: clamp(a.x, 0.5, PITCH_L - 0.5), y: clamp(a.y, 0.5, PITCH_W - 0.5) };
       e.actorAction = a.action || null;
+      e.actorSkript = !nutzeSegmente;
+      if (nutzeSegmente) {
+        e.actorT0 = clamp(isFinite(a.t0) ? a.t0 : 0, 0, 1);
+        e.actorT1 = Math.max(e.actorT0 + 1e-3, clamp(isFinite(a.t1) ? a.t1 : 1, 0, 1));
+        if (ballMoment.has(a.playerId)) {
+          e.ballMoment = ballMoment.get(a.playerId);
+          e.actorT1 = Math.max(1e-3, e.ballMoment);
+          e.actorT0 = clamp(Math.min(e.actorT0, e.actorT1 - 0.25), 0, e.actorT1 - 1e-3);
+        }
+        if (a.from && isFinite(a.from.x) && isFinite(a.from.y)) {
+          e.startX = clamp(a.from.x, 0.5, PITCH_L - 0.5);
+          e.startY = clamp(a.from.y, 0.5, PITCH_W - 0.5);
+        }
+      }
     }
-    return buildBallPath(phase, ball.x, ball.y);
+    return buildBallPath(phase, nutzeSegmente, ball.x, ball.y);
   }
 
   /* --- Kamera & Effekte -------------------------------------------------- */
 
-  function updateCamera(dt) {
-    let tx = WORLD_CX, ty = WORLD_CY, tz = 1;
-    if (o.cinematic) {
-      if (celebrateUntil > nowMs) {
-        tx = celebrateAt.x; ty = celebrateAt.y; tz = CAM_ZOOM_GOAL;
-        cam.holdUntil = nowMs + CAM_HOLD_MS;
-      } else {
-        const hot = ball.x < FINAL_THIRD || ball.x > PITCH_L - FINAL_THIRD
-          || (active && active.phase && active.phase.kind === 'standard');
-        if (active && hot) {
-          tx = ball.x; ty = ball.y; tz = CAM_ZOOM_ACTION;
-          cam.holdUntil = nowMs + CAM_HOLD_MS;
-        } else if (cam.holdUntil > nowMs) {
-          tx = ball.x; ty = ball.y; tz = CAM_ZOOM_ACTION;
-        }
-      }
+  /**
+   * Hysterese: heiß wird es bei FINAL_THIRD_IN, kalt erst bei FINAL_THIRD_OUT.
+   * Eine einzelne Schwelle lässt den Zoom im Sekundentakt pumpen.
+   */
+  function updateCamHot() {
+    const zumTor = Math.min(ball.x, PITCH_L - ball.x);
+    const standard = !!(active && active.phase && active.phase.kind === 'standard');
+    if (standard) cam.hot = true;
+    else if (zumTor <= FINAL_THIRD_IN) cam.hot = true;
+    else if (zumTor >= FINAL_THIRD_OUT) cam.hot = false;
+    if (cam.hot && (active || standard)) {
+      cam.holdUntil = nowMs + CAM_HOLD_MS / clamp(effSpeed, 0.25, 16);
     }
-    const k = 1 - Math.exp(-CAM_SMOOTH * dt);
-    cam.zoom += (tz - cam.zoom) * k;
-    cam.x += (tx - cam.x) * k;
-    cam.y += (ty - cam.y) * k;
-
-    // Nie über den Stadionrand hinausschwenken.
-    const s = pxPerM();
-    const halfW = viewW / (2 * s), halfH = viewH / (2 * s);
-    cam.x = WORLD_W <= halfW * 2 ? WORLD_CX : clamp(cam.x, WX0 + halfW, WX1 - halfW);
-    cam.y = WORLD_H <= halfH * 2 ? WORLD_CY : clamp(cam.y, WY0 + halfH, WY1 - halfH);
+    return cam.hot && (active || cam.holdUntil > nowMs);
   }
 
-  function updateEffects(dt) {
-    if (flashBoost > 0) flashBoost = Math.max(0, flashBoost - dt * 0.55);
+  function updateCamera(dt) {
+    const jubel = celebrateUntil > gameMs;
+    camArg.cinematic = !!o.cinematic;
+    camArg.tempo = effSpeed;
+    camArg.aktiv = !!active;
+    camArg.kind = active && active.phase ? active.phase.kind : null;
+    camArg.hot = updateCamHot();
+    camArg.jubel = jubel;
+    camArg.jubelX = celebrateAt.x; camArg.jubelY = celebrateAt.y;
+    camArg.standX = active && active.standAt ? active.standAt.x : NaN;
+    camArg.standY = active && active.standAt ? active.standAt.y : NaN;
+    camArg.ballX = ball.x; camArg.ballY = ball.y;
+    camArg.ballVx = ball.vx; camArg.ballVy = ball.vy;
+    if (jubel) cam.holdUntil = nowMs + CAM_HOLD_MS / clamp(effSpeed, 0.25, 16);
+
+    kameraZiel(camArg, camZiel);
+
+    // Anschläge am ZIEL (mit Overscan), nicht an cam.* — sonst kann ein Tor nie
+    // zentriert werden und der Glätter arbeitet gegen den Anschlag.
+    const sZiel = baseScale * camZiel.zoom;
+    kameraKlemme(camZiel.x, camZiel.y, viewW / (2 * sZiel), viewH / (2 * sZiel), camKlemm);
+
+    // Glättung auf SPIELZEIT: bei Tempo 4 muss die Kamera 4× schneller ziehen.
+    const camDt = dt * clamp(effSpeed, 1, 4);
+    const k = 1 - Math.exp(-camZiel.smooth * camDt);
+    cam.x += (camKlemm.x - cam.x) * k;
+    cam.y += (camKlemm.y - cam.y) * k;
+    // Zoom logarithmisch: 1 → 2 dauert so lang wie 2 → 4.
+    if (cam.zoom > 1e-6 && camZiel.zoom > 1e-6) {
+      cam.zoom *= Math.exp(Math.log(camZiel.zoom / cam.zoom) * k);
+    }
+  }
+
+  function updateEffects(dt, dtSpiel) {
+    // Blitzlichtgewitter hängt am Jubel, also an der Spielzeit.
+    if (flashBoost > 0) flashBoost = Math.max(0, flashBoost - dtSpiel * 0.55);
     if (!confetti.length) return;
+    // Konfetti bleibt in REALZEIT (es ist Bildschirmschmuck, kein Spielgeschehen),
+    // nur seine Lebensdauer wird bei hohem Tempo gekürzt.
+    const teiler = clamp(effSpeed, 1, 3);
     const alive = [];
     for (const c of confetti) {
-      c.life -= dt;
+      c.life -= dt * teiler;
       if (c.life <= 0) continue;
       c.vy += CONFETTI_GRAVITY * dt;
       c.x += c.vx * dt;
@@ -1079,6 +1843,22 @@ export function createPitchView(canvas, opts = {}) {
     }
   }
 
+  /* --- Flugspur (Ringpuffer, zeitbasiert) -------------------------------- */
+
+  function trailLeeren() {
+    for (const t of trail) t.alter = Infinity;
+  }
+
+  function trailAltern(dtSpiel) {
+    for (const t of trail) if (t.alter < Infinity) t.alter += dtSpiel;
+  }
+
+  function trailSetzen(x, y, z) {
+    const t = trail[trailKopf];
+    t.x = x; t.y = y; t.z = z; t.alter = 0;
+    trailKopf = (trailKopf + 1) % TRAIL_MAX;
+  }
+
   /* --- Zeichnen: Stadion ------------------------------------------------- */
 
   function drawStands() {
@@ -1092,6 +1872,8 @@ export function createPitchView(canvas, opts = {}) {
       ctx.fillRect(WX0, WY0, WORLD_W, WORLD_H);
     }
     if (!crowdDots.length) return;
+    // Ab Tempo 6 kostet das Flimmern nur noch Rechenzeit — man sieht es nicht.
+    if (effSpeed >= DETAIL_OFF_SPEED) return;
 
     // Flimmernde Masse: pro Frame nur ein Ausschnitt wird neu getönt.
     const dot = CROWD_SPACING * 0.62;
@@ -1315,7 +2097,7 @@ export function createPitchView(canvas, opts = {}) {
   }
 
   function drawNoise() {
-    if (!o.noise) return;
+    if (!o.noise || effSpeed >= DETAIL_OFF_SPEED) return;
     if (!noiseCanvas) buildNoise();
     if (!noiseCanvas) return;
     if (!noisePattern) {
@@ -1337,16 +2119,39 @@ export function createPitchView(canvas, opts = {}) {
 
   /* --- Zeichnen: Spieler & Ball ------------------------------------------ */
 
-  /** Wer führt den Ball? (Nur wenn der Ball flach genug ist.) */
+  /** Wer führt den Ball? Nur solange der Ball wirklich am Fuß ist (< 0,8 m). */
   function findCarrier() {
-    if (ball.z > 1.6) return null;
+    if (ball.z >= CARRIER_MAX_Z) return null;
     let best = null, bestD = CARRIER_RADIUS;
-    for (const e of allEnts()) {
+    for (const e of entsAll) {
       const d = Math.hypot(e.x - ball.x, e.y - ball.y);
-      const bonus = e.actorAction ? 0.9 : (e.side === possession ? 0.4 : 0);
+      const bonus = e.actorAction ? 0.5 : (e.side === possession ? 0.25 : 0);
       if (d - bonus < bestD) { bestD = d - bonus; best = e; }
     }
     return best;
+  }
+
+  /**
+   * Abseitslinie der verteidigenden Seite — eine dünne gestrichelte Linie am
+   * letzten Mann. Nur während einer laufenden Phase und nur im cineastischen
+   * Modus, sonst stört sie das Standbild.
+   */
+  function drawOffsideLine() {
+    if (!o.cinematic || !active) return;
+    if (!teams[possession === 'home' ? 'away' : 'home'].ents.length) return;
+    const x = teams[possession].offsideRef;
+    if (!isFinite(x) || x < 8 || x > PITCH_L - 8) return;
+    const sx = w2sX(x);
+    if (sx < -20 || sx > cssW + 20) return;
+    ctx.save();
+    ctx.setLineDash([6, 7]);
+    ctx.strokeStyle = 'rgba(255,235,120,0.45)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(sx, w2sY(0));
+    ctx.lineTo(sx, w2sY(PITCH_W));
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** Notfall-Sprite, falls drawPlayer() nicht verfügbar ist oder wirft. */
@@ -1369,9 +2174,9 @@ export function createPitchView(canvas, opts = {}) {
   }
 
   function drawEntities() {
-    const list = allEnts();
+    const list = entsAll;                    // persistent, keine Allokation
     if (!list.length) return;
-    list.sort((a, b) => a.y - b.y);
+    list.sort((a, b) => a.y - b.y);          // Maler-Reihenfolge, in place
 
     const ppm = pxPerM();
     const scale = clamp(ppm * PLAYER_VIS_HEIGHT_M / PLAYER_SPRITE_REF_PX, PLAYER_SCALE_MIN, PLAYER_SCALE_MAX);
@@ -1408,7 +2213,9 @@ export function createPitchView(canvas, opts = {}) {
             away: teams[e.side].kit.isAway,
             pose: e.pose,
             dir: e.dir,
-            frame: e.frame
+            frame: e.frame,
+            gait: e.gait,   // Schrittamplitude aus dem echten Tempo
+            yaw: e.yaw      // Blickrichtung → Stauchung quer zur Kamera
           };
           if (e.isKeeper && typeof drawKeeper === 'function') {
             drawKeeper(ctx, e.p, sx, sy, scale, drawOpts);
@@ -1448,26 +2255,32 @@ export function createPitchView(canvas, opts = {}) {
 
   function drawBall() {
     const ppm = pxPerM();
+    const z = ball.z;
     const gx = w2sX(ball.x), gy = w2sY(ball.y);
-    const sx = gx, sy = gy - ball.z * ppm * BALL_LIFT;
-    const r = Math.max(2.2, ppm * BALL_RADIUS_M * (1 + ball.z * 0.05));
+    // HÖHENKONVENTION (Dateikopf): der Schatten trägt die Höhe, der Ball wächst nur leicht.
+    const sx = gx, sy = gy - ballLift(z) * ppm;
+    const r = Math.max(2.8, ppm * BALL_RADIUS_M * (1 + z * 0.028));
+    const shR = ppm * BALL_RADIUS_M;          // Schattenradius OHNE z
 
-    // Flugspur
-    for (let i = 0; i < ball.trail.length; i++) {
-      const t = ball.trail[i];
-      const a = (i + 1) / (ball.trail.length + 1) * 0.35;
-      ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
-      ctx.beginPath();
-      ctx.arc(w2sX(t.x), w2sY(t.y) - t.z * ppm * BALL_LIFT, r * 0.55 * a * 2.4, 0, TAU);
-      ctx.fill();
+    // Flugspur (zeitbasiert; ab Tempo 6 aus)
+    if (effSpeed < DETAIL_OFF_SPEED) {
+      for (const t of trail) {
+        if (t.alter >= TRAIL_SECONDS) continue;
+        const a = (1 - t.alter / TRAIL_SECONDS) * 0.34;
+        if (a <= 0.01) continue;
+        ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(w2sX(t.x), w2sY(t.y) - ballLift(t.z) * ppm, r * 0.5 * (0.4 + a), 0, TAU);
+        ctx.fill();
+      }
     }
 
-    // Schatten am Boden
-    const shX = gx + ball.z * ppm * BALL_SHADOW_DX;
-    const shY = gy + ball.z * ppm * BALL_SHADOW_DY;
-    ctx.fillStyle = `rgba(0,0,0,${(0.34 / (1 + ball.z * 0.22)).toFixed(3)})`;
+    // Schatten am Boden: Position (x, y, 0), Versatz und Form aus der Höhe.
+    const shX = gx + z * ppm * BALL_SHADOW_DX;
+    const shY = gy + z * ppm * BALL_SHADOW_DY;
+    ctx.fillStyle = `rgba(0,0,0,${(0.38 / (1 + z * 0.30)).toFixed(3)})`;
     ctx.beginPath();
-    ctx.ellipse(shX, shY, r * 0.95, r * 0.5, 0, 0, TAU);
+    ctx.ellipse(shX, shY, shR * (0.95 + z * 0.10), shR * (0.50 + z * 0.055), 0, 0, TAU);
     ctx.fill();
 
     // Ball mit rotierendem Muster
@@ -1546,7 +2359,9 @@ export function createPitchView(canvas, opts = {}) {
 
   function drawBanner() {
     if (!banner) return;
-    const p = (nowMs - banner.t0) / banner.dur;
+    // Banner läuft auf SPIELZEIT: bei Tempo 4 verschwindet es 4× schneller,
+    // ohne dass es dafür eine eigene Deckelung (BANNER_MAX_SPEEDUP) braucht.
+    const p = (gameMs - banner.t0) / banner.dur;
     if (p >= 1) { banner = null; return; }
     const inS = clamp(p / 0.16, 0, 1);
     const outS = clamp((1 - p) / 0.22, 0, 1);
@@ -1611,6 +2426,7 @@ export function createPitchView(canvas, opts = {}) {
 
     applyScreen();
     drawNoise();
+    drawOffsideLine();
     drawEntities();
     drawBall();
     if (o.hud) drawHud();
@@ -1622,38 +2438,101 @@ export function createPitchView(canvas, opts = {}) {
     if (destroyed) return;
     raf = requestAnimationFrame(tick);
     if (!lastTs) lastTs = ts;
-    // Echte vergangene Zeit für den Phasenfortschritt, gedeckeltes dt für die
-    // Bewegung: Ein auf 60 ms gedeckeltes dt würde bei niedriger Bildrate (Timer-
-    // Ersatz, ausgebremster Tab, schwaches Gerät) die Phase beliebig verlangsamen –
-    // playPhase() käme dann nie ans Ende und das Promise bliebe offen.
-    const elapsed = clamp((ts - lastTs) / 1000, 0, 5);
-    const dt = clamp(elapsed, 0, 0.06);
+
+    /* ---------------------------------------------------------------------
+     * EINE Zeitbasis für Ball, Spieler und Kamera.
+     *
+     * `dt` ist auf 0,12 s gedeckelt: bei niedriger Bildrate (Hintergrundtab,
+     * Timer-Ersatz, schwaches Gerät) sollen weder Integrator noch Kamera in
+     * einem Frame springen. Die Deckelung verlangsamt aber den Phasenfortschritt
+     * — deshalb steht dahinter die WANDUHR-NOTBREMSE (Punkt 1): Nach der
+     * doppelten erwarteten Dauer plus 2 s wird die Phase in jedem Fall
+     * abgeschlossen. `screens/spieltag.js:1591` wartet ohne Timeout-Race auf das
+     * Promise; ohne diese Notbremse hinge dort das ganze Spiel.
+     * Das Budget wird TEMPO-NORMIERT geführt (notbremseAnteil): ein Tempowechsel
+     * mitten in der Phase darf sie nicht abreißen, siehe dort.
+     * ------------------------------------------------------------------- */
+    const rohElapsed = (ts - lastTs) / 1000;   // ungedeckelt: nur für die Notbremse
+    const elapsed = clamp(rohElapsed, 0, 5);
+    const dt = Math.min(elapsed, 0.12);
     lastTs = ts;
     nowMs = ts;
 
-    // Phasenfortschritt
+    // Tempo 8 ohne Blackout: statt die Phase zu überspringen, wird sie gerafft —
+    // aber nie kürzer als PHASE_MIN_SECONDS, damit man den Ball noch sieht.
+    effSpeed = active ? Math.min(speed, active.dur / PHASE_MIN_SECONDS) : speed;
+    const dtSpiel = dt * effSpeed;
+    gameMs += dtSpiel * 1000;
+
+    // Rollenvergabe auf Spielzeit, nicht je Frame (22 Distanzen alle 0,25 s).
+    rollenUhr -= dtSpiel;
+    if (rollenUhr <= 0) { rollenUhr = ROLE_INTERVAL; updateRollen(); }
+
+    /* --- Phasenfortschritt + Ball ---------------------------------------- */
     let phaseT = 1;
+    trailAltern(dtSpiel);
     if (active) {
-      active.t += (elapsed * speed) / active.dur;
+      // Die Wanduhr läuft erst ab dem ERSTEN Frame nach playPhase() — der Frame
+      // davor gehört noch der vorigen Phase (oder der Pause).
+      if (active.wallAnteil === null) active.wallAnteil = 0;
+      else active.wallAnteil = notbremseAnteil(active.wallAnteil, rohElapsed, active.dur, speed);
+      active.t += dtSpiel / active.dur;
+      if (phaseNotbremse(active.wallAnteil)) active.t = 1;
       phaseT = clamp(active.t, 0, 1);
       if (active.path) {
-        const s = samplePath(active.path, phaseT);
-        const moved = Math.hypot(s.x - ball.x, s.y - ball.y);
-        ball.rot += moved * BALL_SPIN;
-        ball.trail.push({ x: ball.x, y: ball.y, z: ball.z });
-        while (ball.trail.length > BALL_TRAIL) ball.trail.shift();
-        ball.x = s.x; ball.y = s.y; ball.z = s.z;
+        samplePath(active.path, phaseT, ballAbtast);
+        const dx = ballAbtast.x - ball.x, dy = ballAbtast.y - ball.y;
+        const moved = Math.hypot(dx, dy);
+        // Rotation je METER: am Boden rollt der Ball (1/r), in der Luft dreht er träger.
+        ball.rot += moved * (ball.z > BALL_AIR_Z ? BALL_AIR_SPIN : BALL_ROLL_SPIN);
+        if (dtSpiel > 1e-5) {
+          const a = clamp(dtSpiel * 12, 0, 1);
+          ball.vx += (dx / dtSpiel - ball.vx) * a;
+          ball.vy += (dy / dtSpiel - ball.vy) * a;
+        }
+        const v = Math.hypot(ball.vx, ball.vy);
+        if (v >= TRAIL_MIN_SPEED) trailSetzen(ball.x, ball.y, ball.z);
+        ball.x = ballAbtast.x; ball.y = ballAbtast.y; ball.z = ballAbtast.z;
+        akustikPruefen(phaseT);
       }
-    } else if (ball.trail.length) {
-      ball.trail.shift();
+    } else {
+      // Ein liegender Ball hat keine Spur.
+      ball.vx *= Math.max(0, 1 - dt * 6);
+      ball.vy *= Math.max(0, 1 - dt * 6);
     }
 
-    updatePlayers(dt, phaseT);
+    updateTeamLines(dtSpiel);
+    updatePlayers(dtSpiel, phaseT);
     updateCamera(dt);
-    updateEffects(dt);
+    updateEffects(dt, dtSpiel);
     draw();
 
     if (active && active.t >= 1) finishPhase();
+  }
+
+  /**
+   * Ton an den Ballweg hängen (Punkt 14). Die Klangbank gehört P10 — hier wird
+   * ausschließlich defensiv aufgerufen, damit beide Pakete unabhängig ausrollen.
+   */
+  function akustikPruefen(phaseT) {
+    if (!bank || !active || !active.path) return;
+    const liste = active.path.akustik;
+    while (active.akIdx < liste.length && liste[active.akIdx].t <= phaseT) {
+      const a = liste[active.akIdx++];
+      if (a.art === 'aufsetzer' && typeof bank.aufsetzer === 'function') {
+        try { bank.aufsetzer(a.wucht); } catch (err) { /* Ton ist nie kritisch */ }
+      }
+    }
+    if (phaseT >= 1 && !active.akEnde) {
+      active.akEnde = true;
+      const letztes = active.path.segs[active.path.segs.length - 1];
+      const art = letztes && letztes.outcome;
+      try {
+        if (art === 'tor' && typeof bank.netz === 'function') bank.netz(0.8);
+        else if ((art === 'latte' || art === 'pfosten') && typeof bank.pfosten === 'function') bank.pfosten();
+        else if (art === 'geblockt' && typeof bank.mauer === 'function') bank.mauer();
+      } catch (err) { /* Ton ist nie kritisch */ }
+    }
   }
 
   /* --- Öffentliche API ---------------------------------------------------- */
@@ -1682,29 +2561,33 @@ export function createPitchView(canvas, opts = {}) {
       if (destroyed) return view;
       buildEntities('home');
       buildEntities('away');
-      ball.x = PITCH_L / 2; ball.y = PITCH_W / 2; ball.z = 0; ball.trail.length = 0;
+      ball.x = PITCH_L / 2; ball.y = PITCH_W / 2; ball.z = 0;
+      ball.vx = 0; ball.vy = 0;
+      trailLeeren();
       return view;
     },
 
     /**
      * Animiert eine Phase (Ballweg + Spielerbewegung).
-     * @returns {Promise<void>} – löst am Ende der Phase auf, nie hängend.
+     * @returns {Promise<void>} – löst am Ende der Phase auf, nie hängend
+     *   (Wanduhr-Notbremse in tick(), siehe phaseNotbremse()).
      */
     playPhase(phase) {
       if (destroyed || !phase) return Promise.resolve();
       finishPhase();                       // eine noch laufende Phase sofort abschließen
       const path = prepPhase(phase);
       const dur = Math.max(0.2, isFinite(phase.duration) ? phase.duration : 3);
+      // Ausführungsort eines Standards: die Kamera steht darauf, nicht auf dem Ball.
+      const standAt = (phase.kind === 'standard' && phase.possessionStart
+        && isFinite(phase.possessionStart.x) && isFinite(phase.possessionStart.y))
+        ? { x: phase.possessionStart.x, y: phase.possessionStart.y }
+        : (path && path.segs.length ? { x: path.segs[0].von.x, y: path.segs[0].von.y } : null);
 
-      if (speed >= 8) {
-        // Bei Höchstgeschwindigkeit direkt in den Endzustand springen.
-        active = { phase, path, t: 1, dur, resolve: null };
-        applyPhaseEnd();
-        active = null;
-        return Promise.resolve();
-      }
       return new Promise((resolve) => {
-        active = { phase, path, t: 0, dur, resolve };
+        // wallAnteil bleibt null, bis der erste Frame läuft: die Framezeit dieses
+        // Frames ist noch beim Aufrufer aufgelaufen und darf der Phase nicht
+        // angelastet werden — sonst risse die Notbremse die erste Phase sofort ab.
+        active = { phase, path, t: 0, dur, resolve, wallAnteil: null, akIdx: 0, akEnde: false, standAt };
       });
     },
 
@@ -1715,20 +2598,26 @@ export function createPitchView(canvas, opts = {}) {
       return view;
     },
 
-    /** Geschwindigkeit: 0.5 | 1 | 2 | 4 | 8 (ab 8 werden Animationen übersprungen). */
+    /**
+     * Geschwindigkeit: 0.5 | 1 | 2 | 4 | 8. Auch bei 8 läuft die Phase weiter,
+     * nur gerafft — sie wird nie kürzer als PHASE_MIN_SECONDS und nie
+     * übersprungen (früher riss `setSpeed(8)` laufende Phasen ab).
+     */
     setSpeed(mult) {
       const m = Number(mult);
       speed = clamp(isFinite(m) && m > 0 ? m : 1, 0.25, 16);
-      if (speed >= 8) finishPhase();
       return view;
     },
 
-    /** Großes Banner einblenden. Enthält der Text „TOR", gibt es Jubel dazu. */
-    showBanner(text, ms = BANNER_DEFAULT_MS) {
+    /**
+     * Großes Banner einblenden. Enthält der Text „TOR", gibt es Jubel dazu —
+     * dann zählt der optionale Ort `at` (Paket 2 ruft showBanner so auf).
+     */
+    showBanner(text, ms = BANNER_DEFAULT_MS, at) {
       if (destroyed) return view;
-      const dur = Math.max(250, (isFinite(ms) ? ms : BANNER_DEFAULT_MS) / clamp(speed, 1, BANNER_MAX_SPEEDUP));
-      banner = { text: String(text == null ? '' : text), t0: nowMs, dur };
-      if (isGoalBanner(text)) view.celebrate();
+      const dur = Math.max(250, isFinite(ms) ? ms : BANNER_DEFAULT_MS);
+      banner = { text: String(text == null ? '' : text), t0: gameMs, dur };
+      if (isGoalBanner(text)) view.celebrate(at);
       return view;
     },
 
@@ -1742,10 +2631,14 @@ export function createPitchView(canvas, opts = {}) {
       return view;
     },
 
-    /** Torjubel: Konfetti, Blitzlichtgewitter und (bei cinematic) Kamerazoom. */
+    /**
+     * Torjubel: Konfetti, Blitzlichtgewitter und (bei cinematic) Kamerazoom.
+     * `at` ist der TATSÄCHLICHE Torort; ohne ihn zoomt die Kamera auf den Ball
+     * der gerade gezeigten Phase. Läuft auf Spielzeit (CELEBRATE_MS).
+     */
     celebrate(at) {
       if (destroyed) return view;
-      celebrateUntil = nowMs + CELEBRATE_MS;
+      celebrateUntil = gameMs + CELEBRATE_MS;
       celebrateAt = {
         x: clamp(at && isFinite(at.x) ? at.x : ball.x, 12, PITCH_L - 12),
         y: clamp(at && isFinite(at.y) ? at.y : ball.y, 10, PITCH_W - 10)
@@ -1753,6 +2646,34 @@ export function createPitchView(canvas, opts = {}) {
       flashBoost = 1;
       spawnConfetti();
       return view;
+    },
+
+    /** Klangbank (P10) nachträglich anschließen. Rein additiv, immer optional. */
+    setSoundBank(neu) {
+      if (!destroyed && neu && typeof neu === 'object') bank = neu;
+      return view;
+    },
+
+    /**
+     * Momentaufnahme des inneren Zustands — ausschließlich für tools/test-buehne.js.
+     * Legt ein neues Objekt an und darf deshalb NIE pro Frame gerufen werden.
+     */
+    zustand() {
+      return {
+        ball: { x: ball.x, y: ball.y, z: ball.z, vx: ball.vx, vy: ball.vy },
+        cam: { x: cam.x, y: cam.y, zoom: cam.zoom, hot: cam.hot },
+        aktiv: !!active,
+        phaseT: active ? clamp(active.t, 0, 1) : 1,
+        effSpeed,
+        gameMs,
+        linien: { home: teams.home.lineDepth, away: teams.away.lineDepth },
+        abseits: { home: teams.home.offsideRef, away: teams.away.offsideRef },
+        ents: entsAll.map((e) => ({
+          id: e.p && e.p.id, side: e.side, group: e.group, rolle: e.rolle,
+          x: e.x, y: e.y, vx: e.vx, vy: e.vy, speedNow: e.speedNow,
+          vmax: e.kin.vmax, apeak: e.kin.apeak, pose: e.pose, dir: e.dir
+        }))
+      };
     },
 
     /** Nach Layout-Änderungen; wird sonst automatisch pro Frame erledigt. */
@@ -1770,6 +2691,7 @@ export function createPitchView(canvas, opts = {}) {
       raf = 0;
       if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
       if (ro) { try { ro.disconnect(); } catch (err) { /* egal */ } }
+      if (active && active.path) { pfadFreigeben(active.path); active.path = null; }
       crowdDots = [];
       crowdLayer = null;
       noiseCanvas = null;
