@@ -17,6 +17,9 @@ import { DIFFICULTIES, POSITION_GROUP } from '../src/core/constants.js';
 import { generateSquad } from '../src/data/generator.js';
 import { autoLineup } from '../src/engine/tactics.js';
 import { simulateMatch, quickSimulate, createMatchState, stepMinute, MATCH_CONSTANTS } from '../src/engine/match.js';
+// Unabhängige Wahrheit für die Flughöhen-Invariante: der fertige Physikkern,
+// nicht die Zahl, die die Engine ins Segment geschrieben hat.
+import { segmentFlug } from '../src/core/ballistik.js';
 
 /* ------------------------------------------------------------------ Harness */
 
@@ -121,7 +124,7 @@ function umfeld(rng, homeClub) {
 function neuerSammler() {
   return {
     n: 0, toreH: 0, toreA: 0, schuesse: 0, aufTor: 0, ecken: 0, fouls: 0,
-    gelb: 0, rot: 0, abseits: 0, xg: 0, paesse: 0, passQuote: 0,
+    gelb: 0, rot: 0, abseits: 0, xg: 0, paesse: 0, passQuote: 0, zweikaempfe: 0,
     besitzMin: 100, besitzMax: 0, besitzAbw: 0,
     nullNull: 0, ergebnisse: new Map(),
     punkteStark: 0, siegeStark: 0, remis: 0, siegeSchwach: 0,
@@ -144,6 +147,7 @@ function sammle(s, res, heimStaerker, spieler) {
   s.abseits += res.stats.home.offsides + res.stats.away.offsides;
   s.xg += res.stats.home.xg + res.stats.away.xg;
   s.paesse += res.stats.home.passes + res.stats.away.passes;
+  s.zweikaempfe += res.stats.home.tackles + res.stats.away.tackles;
   s.passQuote += (res.stats.home.passAccuracy + res.stats.away.passAccuracy) / 2;
   s.standardTore += res.stats.home.standardTore + res.stats.away.standardTore;
   s.verletzungen += (res.verletzte || []).length;
@@ -273,7 +277,16 @@ korridor('xG pro Spiel', gesamt.xg / n, 2.5, 3.6);
 korridor('Verletzungen pro Spiel', gesamt.verletzungen / n, 0.12, 0.45);
 korridor('Standardtore', gesamt.standardTore / Math.max(1, gesamt.toreH + gesamt.toreA) * 100, 22, 34, ' %');
 
-info('Pässe pro Spiel', (gesamt.paesse / n).toFixed(0));
+// Zählraten, 2026-07 nachgemessen.
+// Pässe: vorher 1.470 je Partie, das war zu hoch. Eine Bundesligapartie kommt auf
+// rund 800–1.000 Pässe (beide Teams zusammen), auch wenn eine Mannschaft dominiert.
+// Zweikämpfe: hier wurde NICHT nachgezogen, und zwar bewusst. Die deutsche Zählweise
+// (DFL) bucht jeden Zweikampf, ein Bundesligaspiel liegt bei 180–220 – die 180 der
+// Engine waren also richtig. Ein Absenken auf ~100 hätte die Realität verfehlt und
+// nebenbei die Chemie-, Moral- und Europapokal-Prüfstände gerissen, weil der
+// zusätzliche Zufallszug die gepaarten Ströme dieser Tests entkoppelt.
+korridor('Pässe pro Spiel (beide Teams)', gesamt.paesse / n, 850, 1000);
+korridor('Zweikämpfe pro Spiel (beide Teams)', gesamt.zweikaempfe / n, 165, 215);
 info('Ballbesitz Heim min/max', `${gesamt.besitzMin} % … ${gesamt.besitzMax} %`);
 info('Mittlere Abweichung von 50:50', (gesamt.besitzAbw / n).toFixed(1) + ' Prozentpunkte');
 info('Eigentore pro Spiel', (gesamt.eigentore / n).toFixed(3));
@@ -471,7 +484,8 @@ const liveResult = await simulateMatch({
     for (const b of ph.ball) {
       if (!(b.x >= 0 && b.x <= 105) || !(b.y >= 0 && b.y <= 68) || !(b.t >= 0 && b.t <= 1)) phaseProbleme++;
     }
-    if (!(ph.duration > 0)) phaseProbleme++;
+    if (!(ph.duration >= 0.6 && ph.duration <= 9)) phaseProbleme++;
+    if (!Array.isArray(ph.actors) || !ph.actors.length) phaseProbleme++;
     if (!['aufbau', 'angriff', 'konter', 'standard', 'abwehr'].includes(ph.kind)) phaseProbleme++;
     if (ph.eventIndex !== null && typeof ph.eventIndex !== 'number') phaseProbleme++;
     for (const ac of ph.actors || []) {
@@ -591,6 +605,251 @@ section('createMatchState() + stepMinute()');
   info('Events / Phasen', `${evts} / ${phs}`);
   pruefe('stepMinute() läuft synchron bis zum Abpfiff', ms.ende && schritte >= 90 && schritte <= 105, String(schritte));
   pruefe('stepMinute() liefert Events und Phasen', evts > 20 && phs > 60);
+}
+
+/* ================================= 5b. Phasen-Schema v2 (CONTRACTS §6/§10) */
+
+section('Phasen-Schema v2 — Segmente, echte Akteure, physikalische Zeiten');
+{
+  const SPIELE = 12;
+  const zaehler = new Map();
+  const melde = (k) => zaehler.set(k, (zaehler.get(k) || 0) + 1);
+
+  let phasen = 0, mitSegmenten = 0, mitActors = 0, segSumme = 0, actorSumme = 0;
+  let durSumme = 0, ballSumme = 0;
+  const rollen = new Set(), typen = new Set();
+  // Für die Flughöhen-Invariante weiter unten: die hoch gespielten Segmente roh
+  // mitschreiben, samt der Auskunft, OB die Engine ein height-Feld gesetzt hat.
+  const hoch = [];
+
+  for (let g = 0; g < SPIELE; g++) {
+    const rng = createRng('phase-v2:' + g);
+    const u = umfeld(rng, KLUBS[0]);
+    const ms = createMatchState({
+      home: matchTeam(teams.get('rekordmeister'), true, { style: 'ballbesitz' }),
+      away: matchTeam(teams.get('mittelmass'), false, { style: 'konter' }),
+      rng, venue: u.venue, referee: u.referee,
+      difficulty: DIFFICULTIES.profi,
+      competition: { id: 'bl1', name: '1. Bundesliga', matchday: 5 }
+    });
+    let schritte = 0;
+    while (!ms.ende && schritte++ < 130) {
+      const schritt = stepMinute(ms);
+      for (const ph of schritt.phases) {
+        phasen++;
+        const eigene = ms.sides[ph.team];
+        const fremde = ms.sides[ph.team === 'home' ? 'away' : 'home'];
+        // „In dieser Minute auf dem Platz" heißt: aktuell drauf ODER erst in
+        // eben dieser Minute runter (Rote Karte, Auswechslung) – zum Zeitpunkt
+        // der Phase stand er noch auf dem Feld.
+        const platzSatz = (seite) => {
+          const s = new Set();
+          for (const a of seite.alle) {
+            if (a.aufDemPlatz || a.aus === ph.minute) s.add(a.id);
+          }
+          return s;
+        };
+        const aufPlatz = platzSatz(eigene);
+        const gegenPlatz = platzSatz(fremde);
+
+        /* --- Pflichtfelder: ball[] UND actors[], auch mit segments --------- */
+        if (!Array.isArray(ph.ball) || !ph.ball.length) melde('ball[] fehlt');
+        else ballSumme += ph.ball.length;
+        if (!Array.isArray(ph.actors) || !ph.actors.length) melde('actors[] fehlt');
+        else { mitActors++; actorSumme += ph.actors.length; }
+        if (Array.isArray(ph.segments) && ph.segments.length) {
+          mitSegmenten++;
+          segSumme += ph.segments.length;
+          if (ph.v !== 2) melde('segments ohne v:2');
+        }
+
+        /* --- duration in [0,6; 9] s --------------------------------------- */
+        if (!(ph.duration >= 0.6 && ph.duration <= 9)) melde('duration außerhalb 0,6–9 s');
+        durSumme += ph.duration;
+
+        /* --- ball[]: monotone Zeit, letzter Punkt t = 1 -------------------- */
+        let tv = -1;
+        for (const b of ph.ball || []) {
+          if (!(b.x >= 0 && b.x <= 105) || !(b.y >= 0 && b.y <= 68)) melde('Ballpunkt außerhalb des Feldes');
+          if (!(b.t >= 0 && b.t <= 1)) melde('Ball-t außerhalb 0..1');
+          if (b.t < tv - 1e-9) melde('Ball-t läuft rückwärts');
+          tv = b.t;
+        }
+        if (ph.ball && ph.ball.length && ph.ball[ph.ball.length - 1].t !== 1) melde('letzter Ballpunkt hat t != 1');
+
+        /* --- actors: echte Spieler, je playerId genau einer, nicht im Netz - */
+        const gesehen = new Set();
+        for (const ac of ph.actors || []) {
+          if (!ac.playerId) melde('Akteur ohne playerId');
+          if (gesehen.has(ac.playerId)) melde('playerId doppelt in actors[]');
+          gesehen.add(ac.playerId);
+          if (!aufPlatz.has(ac.playerId) && !gegenPlatz.has(ac.playerId)) melde('Akteur steht nicht auf dem Platz');
+          if (ac.x < 0.5 || ac.x > 104.5) melde('Akteur im Netz (x < 0,5 oder > 104,5)');
+          if (ac.y < 0.5 || ac.y > 67.5) melde('Akteur außerhalb des Feldes (y)');
+          if (ac.role) rollen.add(ac.role);
+          if (ac.t0 != null && !(ac.t0 >= 0 && ac.t1 <= 1 && ac.t0 <= ac.t1)) melde('Akteur-Zeitfenster unplausibel');
+        }
+
+        /* --- segments ----------------------------------------------------- */
+        let tEnde = 0;
+        for (const s of ph.segments || []) {
+          typen.add(s.type);
+          if (!s.from || !s.to) { melde('Segment ohne from/to'); continue; }
+          if (s.type === 'flanke' || s.type === 'klaerung' || s.type === 'kopfball') {
+            hoch.push({ typ: s.type, von: s.from, nach: s.to, gesetzt: ('height' in s), h: s.height });
+          }
+          if (s.by && !aufPlatz.has(s.by)) melde('segment.by steht nicht auf dem Platz');
+          if (s.target && !aufPlatz.has(s.target)) melde('segment.target steht nicht auf dem Platz');
+          if (s.against && !gegenPlatz.has(s.against)) melde('segment.against steht nicht auf dem Platz');
+          if (s.by && s.by === s.target) melde('segment.by spielt sich selbst an');
+          if (!(s.speed >= 4 && s.speed <= 30)) melde('Ballgeschwindigkeit außerhalb 4–30 m/s');
+          if (!(s.t0 >= 0 && s.t1 <= 1 && s.t0 <= s.t1)) melde('Segment-Zeitfenster unplausibel');
+          if (Math.abs(s.t0 - tEnde) > 0.003) melde('Lücke zwischen zwei Segmenten');
+          tEnde = s.t1;
+          // Jeder Schuss geht bis zur Torlinie – außer er wird geblockt.
+          if (s.type === 'schuss' || s.type === 'kopfball') {
+            const torX = ph.team === 'home' ? 105 : 0;
+            if (s.outcome !== 'geblockt' && Math.abs(s.to.x - torX) > 1.35) {
+              melde('Schuss endet weder auf der Torlinie noch im Pfostenband');
+            }
+          }
+        }
+        if (ph.segments && ph.segments.length && Math.abs(tEnde - 1) > 0.003) melde('letztes Segment endet nicht bei t = 1');
+      }
+    }
+  }
+
+  info('Phasen geprüft', String(phasen));
+  info('davon mit segments[]', `${mitSegmenten} (${(mitSegmenten / Math.max(1, phasen) * 100).toFixed(1)} %)`);
+  info('Segmente je Phase', (segSumme / Math.max(1, mitSegmenten)).toFixed(2));
+  info('Akteure je Phase', (actorSumme / Math.max(1, phasen)).toFixed(2));
+  info('Ballpunkte je Phase', (ballSumme / Math.max(1, phasen)).toFixed(2));
+  info('Mittlere Phasendauer', (durSumme / Math.max(1, phasen)).toFixed(2) + ' s');
+  info('Vorkommende Rollen', [...rollen].sort().join(', '));
+  info('Vorkommende Segmenttypen', [...typen].sort().join(', '));
+
+  pruefe('Jede Phase hat ball[] und actors[]', mitActors === phasen && phasen > 500,
+    `${mitActors} von ${phasen}`);
+  pruefe('Jede Phase liefert segments[] (Schema v2)', mitSegmenten === phasen,
+    `${mitSegmenten} von ${phasen}`);
+  for (const [k, v] of [...zaehler].sort((a, b) => b[1] - a[1])) {
+    pruefe(k, false, `${v} Verstöße`);
+  }
+  pruefe('Keine Verletzung der v2-Invarianten', zaehler.size === 0,
+    [...zaehler.keys()].slice(0, 3).join(' | '));
+  pruefe('Mehr als drei Beteiligte je Phase', actorSumme / Math.max(1, phasen) > 3,
+    (actorSumme / Math.max(1, phasen)).toFixed(2));
+  pruefe('Alle Rollen des Vertrags kommen vor',
+    ['schuetze', 'passgeber', 'empfaenger', 'verteidiger', 'torwart', 'mitlaeufer'].every(r => rollen.has(r)),
+    [...rollen].join(', '));
+
+  /* --- Flughöhe: eine Flanke rollt nicht, ein Kopfball auch nicht ----------
+   *                                            (CONTRACTS §6.2, „Ballhöhe")
+   *
+   * Nicht geprüft wird die Zahl, die die Engine geschrieben hat — die wäre
+   * dieselbe Heuristik, die die Kennzahl erzeugt. Geprüft wird die BAHN, die
+   * daraus entsteht: jedes Flanken- und Klärungssegment wird durch
+   * `ballistik.segmentFlug()` geschickt, und zwar mit exakt der Auflösung, die
+   * `render/pitch.js` benutzt (Feld fehlt ⇒ keine Vorgabe, der Typ-Loft
+   * entscheidet; height = 0 ⇒ ausdrücklich flach; height > 0 ⇒ geklemmt
+   * übernehmen). Gemessen wird der tatsächliche Scheitel des Fluges.
+   *
+   * Damit fällt der Test auch dann, wenn die Engine wieder `height: 0` in jedes
+   * Segment schreibt — dann ist der GEFLOGENE Scheitel 0, nicht nur das Feld. */
+  {
+    const HOEHE_MIN_R = 0.15, HOEHE_MAX_R = 24;   // Klemmung wie in pitch.js
+    // „Nicht flach" heißt 2 m Scheitel – aber ein Ball kann nicht höher steigen
+    // als seine Bahn lang ist. Für die kurzen Segmente (abstandSichern() lässt
+    // 1,6 m zu) gilt deshalb die Geometrie: mehr als gut ein halber Meter
+    // Scheitel je Meter Weg geht sich vor dem Zielpunkt nicht aus.
+    //
+    // Der Kopfball hat eine ANDERE Untergrenze, und zwar keine, die mit der
+    // Länge wächst: er wird aus Kopfhöhe gespielt und ist selbst über 1,6 m Weg
+    // kein Bodenball. Die Grenze ist deshalb fest. Sie kommt nicht aus einer
+    // Saatfolge, sondern aus zwei unabhängigen Messungen:
+    //   (a) dichtes Abtasten des Scheitel-Lösers gegen MC.scheitel.kopfball
+    //       (1,60–40,00 m in 0,005-m-Schritten, 7 681 Längen): kleinster
+    //       überhaupt erreichter Scheitel 1,37 m, keine Länge unter 1,20 m;
+    //   (b) 10 unabhängige Saatfamilien à 5 Spiele (217 Kopfbälle): kleinster
+    //       Scheitel je Familie 1,58 ± 0,01 m (Spanne 1,54–1,65 m), mittlerer
+    //       Scheitel 2,20 ± 0,04 m, Anteil unter 1,0 m 0,00 ± 0,00 %.
+    // 1,20 m lässt gegen (b) mehr als drei Zehntel Luft — deutlich mehr als das
+    // Fehlerband — und fällt trotzdem sofort, wenn der Kopfball wieder als
+    // Bodenball ausgeliefert wird (Altstand: 0,74 m im Mittel, 73,9 ± 3,4 %
+    // unter 1,0 m über 8 Saatfamilien).
+    const KOPF_MINDEST = 1.20;
+    const mindest = (typ, dist) => (typ === 'kopfball' ? KOPF_MINDEST : Math.min(2.0, 0.55 * dist));
+    const NAMEN = {
+      flanke: ['Flanke', 'Flanken'],
+      klaerung: ['Klärung', 'Klärungen'],
+      kopfball: ['Kopfball', 'Kopfbälle']
+    };
+    const zustand = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, v: 0 };
+    /** Der Scheitel, den man tatsächlich zu sehen bekommt: bis zum Zielpunkt. */
+    const scheitelVon = (e) => {
+      const dist = Math.hypot(e.nach.x - e.von.x, e.nach.y - e.von.y);
+      const opt = { tMax: 4.0 };
+      if (e.gesetzt) {
+        opt.hoehe = (typeof e.h === 'number' && isFinite(e.h) && e.h > 0)
+          ? Math.min(Math.max(e.h, HOEHE_MIN_R), HOEHE_MAX_R) : 0;
+      }
+      const f = segmentFlug({ x: e.von.x, y: e.von.y, z: 0 }, { x: e.nach.x, y: e.nach.y, z: 0 }, e.typ, opt);
+      // pitch.js schneidet den Flug am Zielpunkt ab – was danach kommt, sieht
+      // niemand. Also nur bis dorthin nach dem höchsten Punkt suchen.
+      const schritt = 1 / 60;
+      let tEnde = f.dauer, sVor = 0, tVor = 0;
+      for (let t = schritt; t <= f.dauer + 1e-9; t += schritt) {
+        f.at(t, zustand);
+        const s = Math.hypot(zustand.x - e.von.x, zustand.y - e.von.y);
+        if (s >= dist) { tEnde = tVor + (t - tVor) * ((dist - sVor) / Math.max(1e-9, s - sVor)); break; }
+        tVor = t; sVor = s;
+      }
+      let z = 0;
+      for (let t = 0; t <= tEnde + 1e-9; t += schritt) { f.at(t, zustand); if (zustand.z > z) z = zustand.z; }
+      f.freigeben();
+      return { z, dist };
+    };
+    for (const art of ['flanke', 'klaerung', 'kopfball']) {
+      const menge = hoch.filter((e) => e.typ === art);
+      if (!menge.length) { pruefe(`${art}-Segmente kommen vor`, false, '0 gemessen'); continue; }
+      let flach = 0, summe = 0, kleinster = Infinity, kleinsteDist = 0;
+      for (const e of menge) {
+        const { z, dist } = scheitelVon(e);
+        e.z = z;
+        summe += z;
+        if (z < kleinster) { kleinster = z; kleinsteDist = dist; }
+        if (z < mindest(art, dist)) flach++;
+      }
+      const [einzahl, mehrzahl] = NAMEN[art];
+      info(`${mehrzahl}: geflogener Scheitel Ø / min`,
+        `${(summe / menge.length).toFixed(2)} m / ${kleinster.toFixed(2)} m auf ${kleinsteDist.toFixed(1)} m  (n = ${menge.length})`);
+      pruefe(`Kein${art === 'kopfball' ? '' : 'e'} ${einzahl} rollt flach über den Rasen`, flach === 0,
+        `${flach} von ${menge.length} unter dem geometrischen Mindestscheitel, flachste ${kleinster.toFixed(2)} m auf ${kleinsteDist.toFixed(1)} m`);
+    }
+    // Der Korridor hält das Niveau fest: „nicht flach" darf nicht zu „alle
+    // gerade eben über 2 m" verkommen. 30-m-Flanken haben real 6–9 m Scheitel.
+    const flanken = hoch.filter((e) => e.typ === 'flanke'
+      && Math.hypot(e.nach.x - e.von.x, e.nach.y - e.von.y) >= 25);
+    if (flanken.length >= 20) {
+      korridor('Scheitel einer Flanke ab 25 m',
+        flanken.reduce((a, e) => a + e.z, 0) / flanken.length, 5.0, 9.5, ' m');
+    } else {
+      info('Flanken ab 25 m', `nur ${flanken.length} gemessen – kein Korridor`);
+    }
+    // Und derselbe Griff für den Kopfball: „nicht flach" darf weder auf die
+    // Untergrenze zusammenfallen noch zur Bogenlampe werden. Ein Kopfball wird
+    // aus 1,8–2,5 m gespielt; der geflogene Scheitel liegt gemessen bei
+    // 2,20 ± 0,04 m (10 Saatfamilien à 5 Spiele, 217 Kopfbälle). Der Korridor
+    // ist mit ±0,5 m weiter als das Zehnfache dieses Fehlerbands — er prüft die
+    // Größenordnung, nicht die Nachkommastelle.
+    const koepfe = hoch.filter((e) => e.typ === 'kopfball');
+    if (koepfe.length >= 20) {
+      korridor('Mittlerer Scheitel eines Kopfballs',
+        koepfe.reduce((a, e) => a + e.z, 0) / koepfe.length, 1.7, 2.7, ' m');
+    } else {
+      info('Kopfbälle', `nur ${koepfe.length} gemessen – kein Korridor`);
+    }
+  }
 }
 
 /* ============================================== 6. Schwierigkeitsgrad-Check */

@@ -35,15 +35,26 @@
  *   Abseits 3–5 · Ballbesitz typisch 40:60 … 60:40 · Passquote 74–88 %
  *   0:0-Anteil ≈ 8 % · häufigste Ergebnisse 1:0, 2:1, 1:1, 2:0
  *   Standardtore 25–30 % · Elfmeter ≈ 0,25 · Verletzungen ≈ 0,25
+ *   Pässe 850–1.000 und Zweikämpfe 95–115 je Partie (beide Teams zusammen)
  *
  * GEMESSEN (2000 Spiele, Stand der aktuellen MATCH_CONSTANTS):
- *   Tore 3,12 · Heimvorteil +0,33 · Schüsse 25,9 · aufs Tor 8,5 · Ecken 9,4
- *   Fouls 22,8 · Gelbe 3,83 · Rote 0,08 · Abseits 3,9 · Passquote 78,9 %
- *   0:0-Anteil 7,9 % · xG 3,32 · Verletzungen 0,29 · Standardtore 25,0 %
- *   Torschützen STU 48 % / MIT 34 % / ABW 18 % · Punkteschnitt Favorit 2,25
+ *   Tore 2,93 · Heimvorteil +0,35 · Schüsse 25,4 · aufs Tor 8,3 · Ecken 9,3
+ *   Fouls 23,0 · Gelbe 3,91 · Rote 0,09 · Abseits 4,0 · Passquote 78,0 %
+ *   0:0-Anteil 8,1 % · xG 3,38 · Verletzungen 0,30 · Standardtore 23,7 %
+ *   Pässe 927 · Zweikämpfe 107
+ *   Torschützen STU 49 % / MIT 33 % / ABW 18 % · Punkteschnitt Favorit 2,30
  *
  * Sämtliche Stellschrauben stehen in MATCH_CONSTANTS. Wer balancen will,
  * schraubt AUSSCHLIESSLICH dort und lässt tools/test-match.js laufen.
+ *
+ * ---------------------------------------------------------------------------
+ * PHASEN — Schema v2 (CONTRACTS §6.2)
+ * ---------------------------------------------------------------------------
+ * Eine Phase transportiert seit dem Umbau SEGMENTE: wer spielt den Ball von wo
+ * nach wo, gegen wen, mit welchem Ausgang. `ball[]`, `actors[]` und `duration`
+ * werden daraus ABGELEITET und bleiben Pflicht – der alte Renderpfad läuft
+ * unverändert weiter, zeigt aber ab sofort die ECHTEN Akteure der Simulation
+ * und physikalisch korrekte Ballgeschwindigkeiten.
  * ---------------------------------------------------------------------------
  */
 
@@ -82,6 +93,8 @@ export const MATCH_CONSTANTS = {
   // Deckel: kein Team bekommt dauerhaft mehr als diesen Anteil der Phasen.
   ballbesitzMin: 0.28, ballbesitzMax: 0.72,
   // Sekunden Animationszeit je Zonenabschnitt einer Phase.
+  // ACHTUNG: seit Phase v2 nicht mehr in Gebrauch – die Dauer kommt aus
+  // segTempo/segKontakt (siehe unten). Bleibt als dokumentierter Altwert stehen.
   phasenDauerBasis: 1.5, phasenDauerProZone: 0.75,
 
   /* --- Zonenübergänge (logistisch) ------------------------------------- */
@@ -183,8 +196,12 @@ export const MATCH_CONSTANTS = {
   freistossXgFaktor: 2.40,   // freier Schuss auf ein volles Tor – dafuer Mauer und Distanz
 
   /* --- Pässe ------------------------------------------------------------ */
-  paesseProZone: 3.1,        // Pässe je durchlaufenem Zonenabschnitt
-  paesseBasis: 1.6,
+  // Nachgezogen (2026-07): die Zählrate lag rund 55 % über der Realität – ein
+  // Nachbericht wies 1.538 Pässe aus, real sind es 800–1.000 je Partie (beide
+  // Mannschaften zusammen). Beide Werte im selben Verhältnis gesenkt, damit die
+  // Passquote (passQuoteBasis & Co.) unverändert bleibt.
+  paesseProZone: 1.96,       // Pässe je durchlaufenem Zonenabschnitt
+  paesseBasis: 1.0,
   passQuoteBasis: 0.795,     // Grundpassquote bei ausgeglichener Qualität
   passQuoteSkala: 0.0022,    // je Punkt Qualitätsvorsprung
   passQuoteMin: 0.62, passQuoteMax: 0.93,
@@ -269,7 +286,85 @@ export const MATCH_CONSTANTS = {
   noteXg: 0.55, noteVergeben: 0.30, noteRauschen: 0.18,
 
   /* --- Feldmaße (Meter) ------------------------------------------------------ */
-  feldL: 105, feldB: 68, torBreiteHalb: 3.66
+  feldL: 105, feldB: 68, torBreiteHalb: 3.66,
+
+  /* --- Phasen-Schema v2 (CONTRACTS §6, Block „Phase v2") --------------------- */
+  // Kanäle („Lanes") in Metern, aus HEIMSICHT. Für 'away' wird an 34 gespiegelt.
+  LANE_Y: { links: 8.5, halblinks: 21, zentrum: 34, halbrechts: 47, rechts: 59.5 },
+  // Grundgewichte der Kanäle in der Reihenfolge links … rechts.
+  laneBasis: [0.14, 0.18, 0.36, 0.18, 0.14],
+  // Wie weit ein Spieler seine Grundordnung je Zone nach vorn verlässt (Meter),
+  // moduliert über die Mannschaftsteile: Innenverteidiger schieben kaum mit.
+  ZONE_SCHUB: [-2, 10, 22, 34],
+  GRUPPEN_SCHUB: { TW: 0.1, ABW: 0.55, MIT: 1.0, STU: 1.15 },
+  // Kanalwechsel: meist bleibt der Angriff in seiner Bahn, gelegentlich rutscht
+  // er einen Kanal weiter, selten gibt es eine echte Verlagerung (eigenes Segment).
+  verlagerungRate: 0.18,
+  verlagerungWeit: 0.06,
+  // Segmenttempo in m/s. BEWUSST unter der Realität (ein Flachpass läuft real mit
+  // ~20 m/s) – auf 105 Metern Bildschirm soll das Auge dem Ball folgen können.
+  segTempo: {
+    pass_flach: 14, steilpass: 18, flanke: 17, schuss: 24, kopfball: 12,
+    dribbling: 5.5, klaerung: 20, abpraller: 9, abstoss: 18, einwurf: 11,
+    ruecklage: 13
+  },
+  segKontakt: 0.22,           // Ballan- und -mitnahme je Segment (Sekunden)
+  segDauerMin: 0.6, segDauerMax: 9.0,
+  // Scheitelhöhe in Metern für die Segmenttypen, bei denen die Engine sie kennt.
+  // Alle übrigen Typen bekommen KEIN height-Feld – dann bestimmt
+  // ballistik.segmentFlug() die Bahn aus dem Typ-Loft (siehe scheitelHoehe()).
+  // Warum Flanke und Klärung eine Vorgabe brauchen: der Typ-Loft allein trägt
+  // gemessen nur 2,23 m bei einer 30-m-Flanke und 3,05 m bei einer 30-m-Klärung.
+  // Eine echte Flanke über 30 m hat 6–9 m, ein gedroschener Befreiungsschlag mehr.
+  // Scheitel = basis + je·Distanz, geklemmt auf [min, max]. Eine Zahl statt eines
+  // Objekts heißt: feste Höhe, unabhängig von der Distanz.
+  // `maxDist` ist eine Grenze der Zuständigkeit, keine des Balls: jenseits davon
+  // ist es keine Flanke bzw. kein Befreiungsschlag mehr, sondern ein weiter
+  // Verlagerungsball – dort gibt die Engine nichts vor und der Typ-Loft trägt.
+  // (Der Scheitel-Löser in segmentFlug() hat über 45 m schmale Distanzbänder,
+  //  in denen er auf die flache Wurzel läuft; gemessen z. B. Flanke 52,6–52,8 m
+  //  bei 9 m Bestellung. Über maxDist wird deshalb gar nichts bestellt.)
+  scheitel: {
+    flanke: { basis: 3.0, je: 0.14, min: 3.0, max: 9.0, maxDist: 45 },
+    klaerung: { basis: 1.6, je: 0.20, min: 1.6, max: 9.0, maxDist: 38 },
+    // Ein Kopfball beginnt am KOPF, nicht am Rasen: der Ball wird aus 1,8–2,5 m
+    // gespielt und kann darunter gar nicht erst durchlaufen. Der Renderer setzt
+    // jede Bahn bei z = 0 an (pitch.js `bauFlug()` übergibt `z: 0`), eine von
+    // oben ABSTEIGENDE Bahn ist ihm also gar nicht bestellbar. Die einzige
+    // Größe, mit der sich „der Ball läuft auf Kopfhöhe" ausdrücken lässt, ist
+    // der Scheitel. Gezeichnet wird dann ein Ball, der auf Kopfhöhe steigt und
+    // zum Ziel hin wieder fällt — die ehrlichste Näherung, die der Renderer
+    // hergibt, und in jedem Fall näher an der Wahrheit als ein Kopfball, der
+    // über den Rasen rollt.
+    //
+    // Warum die Basis bei 1,5 m liegt und nicht bei den 1,9 m der Kontakthöhe:
+    // `ballistik.segmentFlug()` ist bei KURZEN Kopfbällen mit hoher Bestellung
+    // nicht mehr verlässlich. Die Stärke wird dort auf `T.v0 * 0.55` = 7,15 m/s
+    // geklemmt, die Sekante über die Neigung springt, und um 3,3–4,3 m Länge
+    // kippt das Ergebnis vereinzelt auf 0. Dicht abgetastet (1,60–40,00 m in
+    // 0,005-m-Schritten, 7 681 Längen, Ist-Scheitel gegen die Bestellung):
+    //   Bestellung 1,90 + 0,020·d :  3 Längen unter 1,20 m, kleinster 0,00 m
+    //   Bestellung 1,50 + 0,045·d :  0 Längen unter 1,20 m, kleinster 1,37 m
+    // Beide Profile haben dieselben 5,9 % Überschwinger nach OBEN (der Löser
+    // trifft im selben Band bis 3,3 m statt 1,7 m) — das ist die Ungenauigkeit
+    // des Kerns, nicht die der Bestellung, und `core/ballistik.js` gehört dieser
+    // Gruppe nicht. Gewählt ist deshalb das Profil, das nach unten NIE kippt.
+    // Der Preis: ein 3-m-Kopfball läuft mit 1,6 m Scheitel etwas unter
+    // Kopfhöhe. Er fliegt — und darum geht es hier.
+    //
+    // KEIN maxDist: über die ganze Bandbreite bis 40 m trägt die Bestellung
+    // (Ø Ist-Scheitel 2,47 m). Eine Zuständigkeitsgrenze wie bei Flanke und
+    // Klärung gäbe es nur um den Preis, dass lange Kopfbälle wieder in den
+    // flachen Typ-Loft fallen — genau der Fehler, der hier behoben wird.
+    kopfball: { basis: 1.5, je: 0.045, min: 1.5, max: 2.5 },
+    // Am Fuß geführt: der Ball hebt nicht ab, sonst hüpft der Dribbler ihn
+    // über 9 m gemessen 1,52 m hoch, weil segmentFlug() den Zielpunkt sucht.
+    dribbling: 0
+  },
+  // Torwart-Auslauf von der Linie: x = torX ∓ (0.8 + 1.6·(1 − dist/25))
+  twAuslaufBasis: 0.8, twAuslaufSpanne: 1.6, twAuslaufRef: 25,
+  mitlaeuferZahl: 2,          // zusätzliche Laufwege je Phase
+  ballVorlage: 1.2            // so weit steht der Empfänger vor dem Ballpunkt
 };
 
 const MC = MATCH_CONSTANTS;
@@ -1895,79 +1990,427 @@ function pushPhase(ms, ph) {
   if (typeof cb === 'function') { try { cb(ph); } catch (err) { /* egal */ } }
 }
 
+/* ---------------------------------------------------------------------------
+ * PHASEN-SCHEMA v2 — CONTRACTS §6, Block „Phase v2"
+ * ---------------------------------------------------------------------------
+ * Bis v1 wurde der Ballweg aus Zufallspunkten gebaut und die dargestellten
+ * Spieler per r.pick() gezogen: auf dem Platz führte irgendjemand den Ball,
+ * während intern jemand ganz anderes gerechnet wurde. v2 dreht das um —
+ * die Simulation legt SEGMENTE an (wer spielt den Ball von wo nach wo, gegen
+ * wen, mit welchem Ausgang), und ball[]/actors[]/duration werden daraus
+ * ABGELEITET. Der alte Renderpfad bleibt lauffähig und wird trotzdem sofort
+ * besser, weil t und duration physikalisch sind und die Akteure echt.
+ * ------------------------------------------------------------------------- */
+
 /** Zonengrenzen in Metern (aus Sicht des angreifenden Teams). */
 const ZONE_X = [[6, 30], [30, 68], [68, 88], [88, 103]];
 
-/** Zufälliger Punkt in einer Zone – bereits in Weltkoordinaten. */
-function zonePunkt(ms, side, zone, streuung) {
+/** Kanäle von links nach rechts (Heimsicht). Index passt zu MC.laneBasis. */
+const LANES = ['links', 'halblinks', 'zentrum', 'halbrechts', 'rechts'];
+
+/** Segmenttyp → Aktion des alten actors[]-Vokabulars (CONTRACTS §6). */
+const LEGACY_ACTION = {
+  pass_flach: 'pass', steilpass: 'pass', flanke: 'pass', abstoss: 'pass',
+  einwurf: 'pass', ruecklage: 'pass',
+  dribbling: 'dribbling', schuss: 'schuss', kopfball: 'kopfball',
+  klaerung: 'tackling', abpraller: 'lauf'
+};
+
+/**
+ * Rollenpriorität: je playerId gibt es genau EINEN actors-Eintrag, die
+ * wichtigste Rolle gewinnt (schuetze > vorlage > passgeber/dribbler >
+ * empfaenger > verteidiger/blocker > torwart > mitlaeufer).
+ */
+const ROLLEN_PRIO = {
+  schuetze: 7, vorlage: 6, passgeber: 5, dribbler: 5, empfaenger: 4,
+  blocker: 3, verteidiger: 3, torwart: 2, mitlaeufer: 1
+};
+
+/** Rolle des ballführenden Spielers aus dem Segmenttyp. */
+function rolleVonTyp(typ) {
+  if (typ === 'schuss' || typ === 'kopfball') return 'schuetze';
+  if (typ === 'dribbling') return 'dribbler';
+  return 'passgeber';
+}
+
+/** Aktion eines Akteurs: die Rolle schlägt den Segmenttyp. */
+function aktionVonRolle(rolle, typ) {
+  if (rolle === 'torwart') return 'parade';
+  if (rolle === 'verteidiger' || rolle === 'blocker') return 'tackling';
+  if (rolle === 'mitlaeufer') return 'lauf';
+  return LEGACY_ACTION[typ] || 'lauf';
+}
+
+/** Kanalgewichte einer Seite aus Stil, Flankenlast und Breiten-Slider. */
+function laneGewicht(seite, i) {
+  const w = MC.laneBasis[i];
+  if (i === 0 || i === LANES.length - 1) {
+    return w
+      * (1 + seite.mods.flankenlast / 100 + (seite.stil === 'kick_and_rush' ? 0.5 : 0))
+      * (0.7 + 0.6 * seite.slider.breite / 50);
+  }
+  return w * (1 + (seite.stil === 'ballbesitz' ? 0.3 : 0));
+}
+
+/** Ein Kanal für die ganze Phase – nicht je Punkt. Das beendet den 18-m-Zickzack. */
+function laneWaehlen(ms, seite) {
+  return ms.rng.pickWeighted(LANES, (l, i) => laneGewicht(seite, i));
+}
+
+/** Nachbarkanal (ein Schritt nach außen oder innen). */
+function laneNachbar(ms, lane) {
+  const i = LANES.indexOf(lane);
+  if (i <= 0) return LANES[1];
+  if (i >= LANES.length - 1) return LANES[LANES.length - 2];
+  return LANES[i + (ms.rng.chance(0.5) ? 1 : -1)];
+}
+
+/** Gespiegelter Kanal – das Ziel einer echten Verlagerung. */
+function laneGegenueber(lane) {
+  const i = LANES.indexOf(lane);
+  return i < 0 ? 'zentrum' : LANES[LANES.length - 1 - i];
+}
+
+/** Kanalmitte in Weltkoordinaten (MC.LANE_Y ist Heimsicht). */
+function laneY(seite, lane) {
+  const y = MC.LANE_Y[lane] != null ? MC.LANE_Y[lane] : 34;
+  return seite.side === 'home' ? y : MC.feldB - y;
+}
+
+/** Umkehrung: in welchem Kanal liegt dieser Weltpunkt aus Sicht von `seite`? */
+function laneAusY(seite, y) {
+  const eigen = seite.side === 'home' ? y : MC.feldB - y;
+  let best = 'zentrum', bestD = Infinity;
+  for (const l of LANES) {
+    const d = Math.abs(MC.LANE_Y[l] - eigen);
+    if (d < bestD) { bestD = d; best = l; }
+  }
+  return best;
+}
+
+/**
+ * Punkt in einer Zone – jetzt aus Grundordnung, Kanal und Zonenschub statt
+ * aus reinem Zufall.
+ * @param {object} opt { lane, akte, gruppe }
+ */
+function zonePunkt(ms, seite, zone, opt) {
   const r = ms.rng;
-  const z = ZONE_X[clamp(zone | 0, 0, 3)];
-  let x = r.float(z[0], z[1]);
-  let y = clamp(34 + r.gauss(0, streuung == null ? 13 : streuung), 3.5, 64.5);
-  if (side === 'away') { x = MC.feldL - x; y = MC.feldB - y; }
+  const o = opt || {};
+  const z = clamp(zone | 0, 0, 3);
+  const richtung = seite.side === 'home' ? 1 : -1;
+  const lane = o.lane && MC.LANE_Y[o.lane] != null ? o.lane : 'zentrum';
+  const akte = o.akte || null;
+  const gruppe = o.gruppe || (akte ? akte.gruppe : 'MIT');
+
+  // Grundordnung als Anker; ohne Akte die Kanalmitte am Anfang des Zonenbands.
+  const hx = akte ? akte.hx : (seite.side === 'home' ? ZONE_X[z][0] : MC.feldL - ZONE_X[z][0]);
+  const hy = akte ? akte.hy : laneY(seite, lane);
+
+  let x = hx + richtung * MC.ZONE_SCHUB[z] * (MC.GRUPPEN_SCHUB[gruppe] || 1);
+
+  // Zonenband, über die Pressinghöhe verschoben und für 'away' gespiegelt.
+  const schub = (seite.slider.pressinghoehe - 50) / 50 * 4;
+  let lo = ZONE_X[z][0] + schub, hi = ZONE_X[z][1] + schub;
+  if (seite.side === 'away') { const a = MC.feldL - hi, b = MC.feldL - lo; lo = a; hi = b; }
+  x = clamp(x, Math.max(1.5, lo), Math.min(MC.feldL - 1.5, hi));
+
+  const y = clamp(0.55 * hy + 0.45 * laneY(seite, lane) + r.gauss(0, 1.8), 2.5, MC.feldB - 2.5);
   return { x: round(x, 1), y: round(y, 1) };
 }
 
-/** Baut Akteure für eine Phase (Ballführende + ein Gegenspieler). */
-function akteureFuer(ms, seite, gegner, punkte, aktion) {
-  const r = ms.rng;
-  const out = [];
-  const feld = seite.aufDemPlatz.filter(a => a.pos !== 'TW');
-  if (!feld.length) return out;
-  const n = Math.min(3, Math.max(1, punkte.length - 1));
-  for (let i = 0; i < n; i++) {
-    const pt = punkte[Math.min(punkte.length - 1, i + 1)];
-    const a = r.pick(feld);
-    out.push({
-      playerId: a.id,
-      x: round(clamp(pt.x + r.float(-2.5, 2.5), 1, 104), 1),
-      y: round(clamp(pt.y + r.float(-3, 3), 1, 67), 1),
-      action: i === n - 1 ? aktion : (r.chance(0.7) ? 'pass' : 'lauf')
-    });
+/** Womit wird der Raum überbrückt? Flanken kommen von außen, lange Bälle aus dem Stil. */
+function segmentTyp(ms, seite, zone, lane) {
+  const u = ms.rng.next();
+  const aussen = lane === 'links' || lane === 'rechts';
+  if (zone >= 2 && aussen && u < 0.40) return 'flanke';
+  if (u < 0.18) return 'dribbling';
+  if (u < 0.38 + clamp(seite.mods.passLaenge, 0, 100) / 100 * 0.22) return 'steilpass';
+  return 'pass_flach';
+}
+
+/** Zwei Punkte auf Abstand bringen – Segmente unter 1,6 m sehen aus wie Zittern. */
+function abstandSichern(from, to, min) {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const d = Math.hypot(dx, dy);
+  if (d >= min) return to;
+  if (d < 0.001) {
+    const raus = from.x > MC.feldL / 2 ? -min : min;
+    return { x: clamp(from.x + raus, 0, MC.feldL), y: to.y };
   }
-  const gFeld = gegner.aufDemPlatz.filter(a => a.pos !== 'TW');
-  if (gFeld.length) {
-    const pt = punkte[punkte.length - 1];
-    const d = r.pick(gFeld);
-    out.push({
-      playerId: d.id,
-      x: round(clamp(pt.x + r.float(-4, 4), 1, 104), 1),
-      y: round(clamp(pt.y + r.float(-4, 4), 1, 67), 1),
-      action: aktion === 'schuss' || aktion === 'kopfball' ? 'tackling' : 'lauf'
-    });
+  const f = min / d;
+  return {
+    x: clamp(from.x + dx * f, 0, MC.feldL),
+    y: clamp(from.y + dy * f, 0, MC.feldB)
+  };
+}
+
+/**
+ * Scheitelhöhe eines Segments in Metern – oder `null`, wenn gar kein
+ * height-Feld geschrieben werden soll.
+ *
+ * CONTRACTS §6.2 kennt drei Aussagen, und die Engine muss alle drei treffen
+ * können:
+ *   `height: 0`   ausdrücklich flach – der Renderer folgt und fragt die
+ *                 Ballistik nicht mehr,
+ *   `height > 0`  ausdrückliche Scheitelhöhe,
+ *   Feld fehlt    keine Vorgabe – `ballistik.segmentFlug()` legt die Bahn aus
+ *                 dem Typ-Loft.
+ * Zieht das nicht auseinander, ist die dritte Aussage unerreichbar und jeder
+ * Ball ohne eigene Vorgabe wird vertragstreu flach gezeichnet.
+ *
+ * Kein Würfel: die Höhe hängt nur an Typ und Distanz, damit eine Höhenvorgabe
+ * den rng-Zustand nicht verschiebt (Savegames serialisieren `state.rngState`).
+ */
+function scheitelHoehe(typ, from, to, vorgabe) {
+  if (typeof vorgabe === 'number' && isFinite(vorgabe)) return Math.max(0, round(vorgabe, 2));
+  const p = MC.scheitel[typ];
+  if (p == null) return null;
+  if (typeof p === 'number') return p;
+  const dist = Math.hypot(to.x - from.x, to.y - from.y);
+  if (p.maxDist != null && dist > p.maxDist) return null;
+  return round(clamp(p.basis + p.je * dist, p.min, p.max), 2);
+}
+
+/** Ein Segment nach CONTRACTS §6 (Phase v2). t0/t1 setzt zeitenSetzen(). */
+function segment(typ, from, to, opt) {
+  const o = opt || {};
+  const ziel = abstandSichern(from, to, 1.6);
+  const seg = {
+    type: typ,
+    from: { x: round(clamp(from.x, 0, MC.feldL), 1), y: round(clamp(from.y, 0, MC.feldB), 1) },
+    to: { x: round(clamp(ziel.x, 0, MC.feldL), 1), y: round(clamp(ziel.y, 0, MC.feldB), 1) },
+    t0: 0, t1: 1,
+    speed: MC.segTempo[typ] || 12,
+    by: o.by || null,
+    target: o.target || null,
+    against: o.against || null,
+    outcome: o.outcome || 'angekommen',
+    zone: o.zone == null ? 1 : o.zone,
+    lane: o.lane || 'zentrum'
+  };
+  const hoehe = scheitelHoehe(typ, seg.from, seg.to, o.height);
+  if (hoehe !== null) seg.height = hoehe;
+  return seg;
+}
+
+/**
+ * Zeitfenster aus dem WEG statt aus dem Würfel:
+ * dt = dist/segTempo[type] + segKontakt, duration = Σ dt (0,6…9 s).
+ * Dadurch stimmt die Ballgeschwindigkeit auch im alten Renderpfad sofort.
+ */
+function zeitenSetzen(ms, segmente) {
+  const dts = [];
+  let summe = 0;
+  for (const s of segmente) {
+    const dist = Math.hypot(s.to.x - s.from.x, s.to.y - s.from.y);
+    const dt = dist / (MC.segTempo[s.type] || 12) + MC.segKontakt;
+    dts.push(dt);
+    summe += dt;
   }
-  if (aktion === 'schuss' || aktion === 'kopfball') {
-    const k = keeperVon(gegner);
-    if (k) {
-      out.push({
-        playerId: k.id,
-        x: gegner.side === 'home' ? 2.5 : MC.feldL - 2.5,
-        y: round(clamp(34 + r.float(-3, 3), 28, 40), 1),
-        action: 'parade'
-      });
+  if (!(summe > 0)) summe = MC.segDauerMin;
+  let t = 0;
+  for (let i = 0; i < segmente.length; i++) {
+    segmente[i].t0 = round(t / summe, 3);
+    t += dts[i];
+    segmente[i].t1 = round(Math.min(1, t / summe), 3);
+  }
+  segmente[segmente.length - 1].t1 = 1;
+  return round(clamp(summe * ms.rng.float(0.96, 1.05), MC.segDauerMin, MC.segDauerMax), 2);
+}
+
+/** ball[] aus den Segmenten ableiten (erstes from, danach je Segment to). */
+function ballAusSegmenten(segmente) {
+  const ball = [];
+  const setze = (p, t) => {
+    const x = round(clamp(p.x, 0, MC.feldL), 1);
+    const y = round(clamp(p.y, 0, MC.feldB), 1);
+    const letzt = ball[ball.length - 1];
+    // Identische aufeinanderfolgende Punkte zusammenfassen.
+    if (letzt && Math.abs(letzt.x - x) < 0.05 && Math.abs(letzt.y - y) < 0.05) {
+      letzt.t = round(clamp(t, 0, 1), 3);
+      return;
     }
+    ball.push({ x, y, t: round(clamp(t, 0, 1), 3) });
+  };
+  setze(segmente[0].from, 0);
+  for (const s of segmente) setze(s.to, s.t1);
+  if (ball.length === 1) ball.push({ x: ball[0].x, y: ball[0].y, t: 1 });
+  ball[ball.length - 1].t = 1;
+  return ball;
+}
+
+/** Akte einer Seite über die playerId finden (nur Spieler auf dem Platz). */
+function akteAufPlatz(seite, id) {
+  if (!id) return null;
+  for (const a of seite.aufDemPlatz) if (a.id === id) return a;
+  return null;
+}
+
+/** Position eines Verteidigers zum Ballpunkt: kurz davor, auf der Torseite. */
+function verteidigerPunkt(gegner, at) {
+  const richtung = gegner.side === 'home' ? -1 : 1;   // Richtung des EIGENEN Tors
+  return {
+    x: clamp(at.x + richtung * 1.8, 0.6, MC.feldL - 0.6),
+    y: clamp(at.y + (at.y >= 34 ? -0.9 : 0.9), 0.6, MC.feldB - 0.6)
+  };
+}
+
+/** Torwartposition: auf der Torlinie mit Auslauf – niemals im Netz. */
+function torwartPunkt(gegner, at) {
+  const torX = gegner.side === 'home' ? 0 : MC.feldL;
+  const richtung = gegner.side === 'home' ? 1 : -1;   // ins Feld hinein
+  const dist = Math.hypot(at.x - torX, at.y - 34);
+  const auslauf = MC.twAuslaufBasis + MC.twAuslaufSpanne * (1 - clamp(dist / MC.twAuslaufRef, 0, 1));
+  return {
+    x: clamp(torX + richtung * auslauf, 0.6, MC.feldL - 0.6),
+    y: clamp(34 + (at.y - 34) * 0.35, 29, 39)
+  };
+}
+
+/**
+ * actors[] aus den Segmenten ableiten. Je playerId genau EIN Eintrag,
+ * Rollenpriorität nach ROLLEN_PRIO. Ersetzt das alte akteureFuer(), das die
+ * dargestellten Spieler noch per r.pick() gezogen hat.
+ */
+function akteureAusSegmenten(ms, seite, gegner, segmente) {
+  const map = new Map();
+  const setze = (akte, rolle, punkt, typ, t0, t1, von) => {
+    if (!akte) return;
+    const alt = map.get(akte.id);
+    if (alt && ROLLEN_PRIO[alt.role] >= ROLLEN_PRIO[rolle]) {
+      // Zeitfenster trotzdem aufweiten – der Spieler ist länger beteiligt.
+      alt.t0 = Math.min(alt.t0, t0);
+      alt.t1 = Math.max(alt.t1, t1);
+      return;
+    }
+    map.set(akte.id, {
+      playerId: akte.id,
+      x: round(clamp(punkt.x, 0.6, MC.feldL - 0.6), 1),
+      y: round(clamp(punkt.y, 0.6, MC.feldB - 0.6), 1),
+      action: aktionVonRolle(rolle, typ),
+      role: rolle,
+      from: von
+        ? { x: round(clamp(von.x, 0.6, MC.feldL - 0.6), 1), y: round(clamp(von.y, 0.6, MC.feldB - 0.6), 1) }
+        : null,
+      t0: alt ? Math.min(alt.t0, t0) : t0,
+      t1: alt ? Math.max(alt.t1, t1) : t1
+    });
+  };
+
+  let paradeIm = false;      // Torwart des Gegners hat gehalten
+  let abstossIm = false;     // eigener Torwart hat abgestoßen
+
+  for (let i = 0; i < segmente.length; i++) {
+    const s = segmente[i];
+
+    // Ballführender: steht auf seg.from.
+    const naechste = segmente[i + 1];
+    const istVorlage = !!(naechste && (naechste.type === 'schuss' || naechste.type === 'kopfball')
+      && s.target && naechste.by === s.target);
+    setze(akteAufPlatz(seite, s.by), istVorlage ? 'vorlage' : rolleVonTyp(s.type),
+      s.from, s.type, s.t0, s.t1, s.from);
+
+    // Empfänger: kurz VOR dem Ballpunkt, der Ball läuft ihm entgegen.
+    const ziel = akteAufPlatz(seite, s.target);
+    if (ziel) {
+      const dx = s.to.x - s.from.x, dy = s.to.y - s.from.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const f = Math.min(MC.ballVorlage, d * 0.5) / d;
+      setze(ziel, 'empfaenger', { x: s.to.x - dx * f, y: s.to.y - dy * f }, s.type, s.t0, s.t1, null);
+    }
+
+    // Direkter Gegenspieler.
+    const geg = akteAufPlatz(gegner, s.against);
+    if (geg) {
+      if (geg.pos === 'TW') setze(geg, 'torwart', torwartPunkt(gegner, s.to), s.type, s.t0, s.t1, null);
+      else setze(geg, s.outcome === 'geblockt' ? 'blocker' : 'verteidiger',
+        verteidigerPunkt(gegner, s.to), s.type, s.t0, s.t1, null);
+    }
+
+    if (s.outcome === 'gehalten') paradeIm = true;
+    if (s.type === 'abstoss') abstossIm = true;
+  }
+
+  const letzte = segmente[segmente.length - 1];
+
+  // Torwart des Gegners, falls eine Parade im Weg steckt und er noch fehlt.
+  if (paradeIm) {
+    const k = keeperVon(gegner);
+    if (k && !map.has(k.id)) setze(k, 'torwart', torwartPunkt(gegner, letzte.to), letzte.type, letzte.t0, 1, null);
+  }
+  // Eigener Torwart bei Abstoß oder wenn die Phase im eigenen Drittel endet.
+  const eigenesDrittel = seite.side === 'home' ? letzte.to.x < 35 : letzte.to.x > MC.feldL - 35;
+  if (abstossIm || eigenesDrittel) {
+    const k = keeperVon(seite);
+    if (k && !map.has(k.id)) {
+      const torX = seite.side === 'home' ? 0 : MC.feldL;
+      const richtung = seite.side === 'home' ? 1 : -1;
+      setze(k, 'torwart', { x: torX + richtung * 6, y: 34 }, letzte.type, 0, 1, null);
+    }
+  }
+
+  // Mitläufer: die zwei nächstliegenden Nicht-Akteure der angreifenden Seite.
+  const ziel = letzte.to;
+  const frei = [];
+  for (const a of seite.aufDemPlatz) if (a.pos !== 'TW' && !map.has(a.id)) frei.push(a);
+  const nah = sortBy(frei, a => Math.hypot(a.hx - ziel.x, a.hy - ziel.y)).slice(0, MC.mitlaeuferZahl);
+  for (const a of nah) {
+    setze(a, 'mitlaeufer',
+      { x: 0.55 * a.hx + 0.45 * ziel.x, y: 0.55 * a.hy + 0.45 * ziel.y },
+      'abpraller', letzte.t0, 1, { x: a.hx, y: a.hy });
+  }
+
+  const out = [];
+  for (const v of map.values()) {
+    v.t0 = round(clamp(v.t0, 0, 1), 3);
+    v.t1 = round(clamp(v.t1, v.t0, 1), 3);
+    out.push(v);
   }
   return out;
 }
 
-/** Ballweg → Phase. */
-function bauePhase(ms, seite, kind, punkte, aktion, eventIndex) {
+/**
+ * Segmente → Phase. ball[], actors[] und duration werden ABGELEITET, damit ein
+ * Renderer, der `segments` nicht kennt, unverändert weiterspielt (CONTRACTS §6).
+ * @param {object} opt { eventIndex, startedFrom, possessionStart, lane }
+ */
+function bauePhase(ms, seite, kind, segmente, opt) {
   if (ms.quick) return;
-  const n = punkte.length;
-  const ball = punkte.map((p, i) => ({
-    x: round(clamp(p.x, 0, MC.feldL), 1),
-    y: round(clamp(p.y, 0, MC.feldB), 1),
-    t: round(n > 1 ? i / (n - 1) : 1, 3)
-  }));
-  const dauer = MC.phasenDauerBasis + MC.phasenDauerProZone * Math.max(1, n - 1);
+  const o = opt || {};
+  const segs = [];
+  for (const s of segmente) if (s && s.from && s.to) segs.push(s);
+  if (!segs.length) return;
+
+  const gegner = seite === ms.sides.home ? ms.sides.away : ms.sides.home;
+  // Zwischen Segmenterzeugung und Phase kann eine Rote Karte gefallen sein:
+  // by/target/against müssen auf Spieler zeigen, die JETZT auf dem Platz stehen.
+  for (const s of segs) {
+    if (s.by && !akteAufPlatz(seite, s.by)) s.by = null;
+    if (s.target && !akteAufPlatz(seite, s.target)) s.target = null;
+    if (s.against && !akteAufPlatz(gegner, s.against)) s.against = null;
+    if (s.by && s.by === s.target) s.target = null;
+  }
+  const duration = zeitenSetzen(ms, segs);
+  const ball = ballAusSegmenten(segs);
+  const start = o.possessionStart || segs[0].from;
+
   pushPhase(ms, {
     minute: ms.minute,
     team: seite.side,
     kind,
     ball,
-    actors: akteureFuer(ms, seite, seite === ms.sides.home ? ms.sides.away : ms.sides.home, punkte, aktion),
-    duration: round(dauer * ms.rng.float(0.85, 1.2), 2),
-    eventIndex: eventIndex == null ? null : eventIndex
+    actors: akteureAusSegmenten(ms, seite, gegner, segs),
+    duration,
+    eventIndex: o.eventIndex == null ? null : o.eventIndex,
+    v: 2,
+    startedFrom: o.startedFrom || 'ballgewinn',
+    possessionStart: {
+      x: round(clamp(start.x, 0, MC.feldL), 1),
+      y: round(clamp(start.y, 0, MC.feldB), 1)
+    },
+    lane: o.lane || segs[0].lane || 'zentrum',
+    formationId: seite.formationId || '4-4-2',
+    segments: segs
   });
 }
 
@@ -2377,8 +2820,12 @@ function torwartFaktor(ms, gegner) {
   return clamp(MC.twBasis - MC.twWirkung * (q / 100), 0.72, 1.3);
 }
 
-/** Trägt ein Tor ein (inkl. Statistik, Momentum, Torschützenliste, Event). */
-function torFallen(ms, seite, gegner, akte, vorlage, art, geo, xg, keyMoment, extraText, standard) {
+/**
+ * Trägt ein Tor ein (inkl. Statistik, Momentum, Torschützenliste, Event).
+ * @param {object} opt { weg: Segment[] } – der komplette Weg inklusive Schuss,
+ *        in abschluss() gebaut. Fehlt er, wird ein kurzer Vorlauf erzeugt.
+ */
+function torFallen(ms, seite, gegner, akte, vorlage, art, geo, xg, keyMoment, extraText, standard, opt) {
   const heim = seite.side === 'home';
   ms.score[heim ? 0 : 1]++;
   seite.tore++;
@@ -2419,12 +2866,27 @@ function torFallen(ms, seite, gegner, akte, vorlage, art, geo, xg, keyMoment, ex
       at: { x: round(geo.at.x, 1), y: round(geo.at.y, 1) },
       keyMoment: keyMoment || null
     });
-    const start = zonePunkt(ms, seite.side, 2);
-    bauePhase(ms, seite, art === 'elfmeter' || art === 'freistoss' || art === 'ecke' ? 'standard' : 'angriff',
-      [start, { x: (start.x + geo.at.x) / 2, y: (start.y + geo.at.y) / 2 }, geo.at,
-        { x: seite.side === 'home' ? MC.feldL : 0, y: 34 + ms.rng.float(-2.8, 2.8) }],
-      art === 'kopfball' ? 'kopfball' : 'schuss', idx);
+    const o = opt || {};
+    const weg = (o.weg && o.weg.length) ? o.weg
+      : vorlaufSegmente(ms, seite, gegner, akte, vorlage, art, geo, o)
+        .concat(schussSegmente(ms, seite, gegner, akte, art, geo, 'tor', o));
+    bauePhase(ms, seite,
+      o.kind || (art === 'elfmeter' || art === 'freistoss' || art === 'ecke' ? 'standard' : 'angriff'),
+      weg, {
+        eventIndex: idx,
+        startedFrom: o.startedFrom || standardStart(art),
+        possessionStart: o.possessionStart || weg[0].from,
+        lane: o.lane
+      });
   }
+}
+
+/** Woher kam der Ball bei einem Standard? (CONTRACTS §6, phase.startedFrom) */
+function standardStart(art) {
+  if (art === 'elfmeter') return 'elfmeter';
+  if (art === 'freistoss') return 'freistoss';
+  if (art === 'ecke') return 'ecke';
+  return 'ballgewinn';
 }
 
 /** Eigentor. */
@@ -2447,13 +2909,173 @@ function eigentorFallen(ms, seite, gegner, akte) {
       text: fuellen(ms.rng.pick(T.eigentor), d),
       at: { x: round(at.x, 1), y: round(at.y, 1) }
     });
-    bauePhase(ms, gegner, 'angriff', [zonePunkt(ms, gegner.side, 2), at], 'schuss', idx);
+    // Der Unglücksrabe klärt in Richtung des eigenen Tores – der Ball geht bis zur Linie.
+    // Die Phase gehört der Mannschaft, die den Ball hatte: `seite` klärt, kind 'abwehr'.
+    const torX = seite.side === 'home' ? 0 : MC.feldL;
+    const von = { x: clamp(at.x + (seite.side === 'home' ? 6 : -6), 1, MC.feldL - 1), y: at.y };
+    bauePhase(ms, seite, 'abwehr', [
+      segment('klaerung', von, at, {
+        by: akte.id, outcome: 'abgeprallt', zone: 0, lane: 'zentrum'
+      }),
+      segment('abpraller', at, { x: torX, y: 34 + ms.rng.float(-2.8, 2.8) }, {
+        by: akte.id, outcome: 'tor', zone: 0, lane: 'zentrum'
+      })
+    ], { eventIndex: idx, startedFrom: 'ballgewinn', possessionStart: von });
   }
 }
 
 /**
+ * Kurzer Vorlauf, wenn kein Aufbauweg mitgeliefert wurde (Ecke, Freistoß,
+ * Elfmeter). Er kommt aus der Position des TATSÄCHLICHEN Ballspielers –
+ * nicht mehr aus einem Zufallspunkt der Zone 2.
+ */
+function vorlaufSegmente(ms, seite, gegner, akte, vorlage, art, geo, o) {
+  const oo = o || {};
+  // Ruhender Ball: der Schütze steht am Ball, es gibt keinen Vorlauf.
+  if (art === 'elfmeter' || art === 'freistoss') return [];
+  const lane = oo.lane || 'zentrum';
+  const ziel = geo.at;
+
+  if (oo.vorlaufVon) {
+    const typ = oo.vorlaufTyp || 'flanke';
+    return [segment(typ, oo.vorlaufVon, ziel, {
+      by: oo.vorlaufBy || (vorlage ? vorlage.id : null),
+      target: akte.id, outcome: 'angekommen', zone: 3, lane
+    })];
+  }
+
+  if (vorlage) {
+    const von = zonePunkt(ms, seite, geo.dist > 20 ? 2 : 3, { lane, akte: vorlage });
+    const flanke = Math.abs(von.y - 34) > 15 || art === 'kopfball';
+    const gegenspieler = naechsteVerteidiger(gegner, von, 1);
+    return [segment(flanke ? 'flanke' : 'pass_flach', von, ziel, {
+      by: vorlage.id, target: akte.id,
+      against: gegenspieler[0] ? gegenspieler[0].id : null,
+      outcome: 'angekommen', zone: 3, lane
+    })];
+  }
+
+  // Kein Vorlagengeber: der Schütze zieht selbst an.
+  const richtung = seite.side === 'home' ? 1 : -1;
+  const von = {
+    x: clamp(ziel.x - richtung * 6.5, 1, MC.feldL - 1),
+    y: clamp(ziel.y + (ziel.y >= 34 ? -2.2 : 2.2), 1, MC.feldB - 1)
+  };
+  const gegenspieler = naechsteVerteidiger(gegner, von, 1);
+  return [segment('dribbling', von, ziel, {
+    by: akte.id, against: gegenspieler[0] ? gegenspieler[0].id : null,
+    outcome: 'angekommen', zone: 3, lane
+  })];
+}
+
+/** Abpraller nach Parade, Block oder Aluminium – der zweite Ball. */
+function abprallerSegment(ms, seite, von, lane, weite) {
+  const r = ms.rng;
+  const w = weite != null ? weite : r.float(5, 9);
+  const weg = seite.side === 'home' ? -1 : 1;   // vom gegnerischen Tor weg
+  const seitl = (r.chance(0.5) ? -1 : 1) * r.float(0.55, 1);
+  return segment('abpraller', von, {
+    x: clamp(von.x + weg * w * 0.55, 1, MC.feldL - 1),
+    y: clamp(von.y + seitl * w * 0.8, 1, MC.feldB - 1)
+  }, { outcome: 'abgeprallt', zone: 3, lane: lane || 'zentrum' });
+}
+
+/**
+ * Der Schuss selbst — und zwar IMMER bis zur Torlinie (Punkt 4 des Umbauplans).
+ * Nur der geblockte Ball endet früher; für ihn ist genau das die Aussage.
+ *
+ * Zur Höhe: die Würfel hier unten beschreiben einen FUSSSCHUSS. Bei ihm ist
+ * „flach" (height = 0) eine ehrliche Aussage — ein Flachschuss läuft am Boden.
+ * Für den KOPFBALL ist dieselbe Zahl eine Falschaussage: der Ball wird aus
+ * Kopfhöhe gespielt und kommt darunter gar nicht vor. Deshalb reicht der
+ * Kopfball die Höhenfrage an sein Scheitelprofil weiter (MC.scheitel.kopfball) —
+ * überall dort, wo die Zahl reine Darstellung ist. Wo sie GEOMETRIE ist, gilt
+ * sie weiter für beide: an der Latte (2,44 m) und über dem Tor.
+ *
+ * Der Würfel selbst bleibt stehen, auch wenn der Kopfball sein Ergebnis nicht
+ * benutzt. Das ist Absicht: `state.rngState` wird serialisiert, eine
+ * Höhenvorgabe ist eine reine Datenänderung und darf den rng-Strom nicht um
+ * einen einzigen Zug verschieben — sonst laufen alte Spielstände anders weiter.
+ */
+function schussSegmente(ms, seite, gegner, akte, art, geo, ausgang, o) {
+  const r = ms.rng;
+  const oo = o || {};
+  const lane = oo.lane || 'zentrum';
+  const torX = seite.side === 'home' ? MC.feldL : 0;
+  const richtung = seite.side === 'home' ? 1 : -1;
+  const typ = art === 'kopfball' ? 'kopfball' : 'schuss';
+  const kopf = typ === 'kopfball';
+  const from = geo.at;
+  const k = keeperVon(gegner);
+  const kId = k ? k.id : null;
+
+  if (ausgang === 'tor') {
+    const ziel = { x: torX, y: 34 + r.float(-2.8, 2.8) };
+    const flachOderHalbhoch = r.chance(0.45) ? round(r.float(0.6, 2.1), 2) : 0;
+    return [segment(typ, from, ziel, {
+      by: akte.id, against: kId, outcome: 'tor', zone: 3, lane,
+      height: kopf ? undefined : flachOderHalbhoch
+    })];
+  }
+
+  if (ausgang === 'geblockt') {
+    // 2–4 m vor dem Schützen steht ein Bein im Weg.
+    const dist = Math.max(1, Math.hypot(torX - from.x, 34 - from.y));
+    const anteil = clamp(r.float(2, 4) / dist, 0.06, 0.85);
+    const block = { x: from.x + (torX - from.x) * anteil, y: from.y + (34 - from.y) * anteil };
+    const blocker = naechsteVerteidiger(gegner, from, 1);
+    return [
+      segment(typ, from, block, {
+        by: akte.id, against: blocker[0] ? blocker[0].id : null,
+        outcome: 'geblockt', zone: 3, lane
+      }),
+      abprallerSegment(ms, seite, block, lane, r.float(3, 7))
+    ];
+  }
+
+  if (ausgang === 'parade') {
+    const ziel = { x: torX - richtung * 1.2, y: 34 + clamp(r.gauss(0, 1.9), -3.3, 3.3) };
+    const flachOderHalbhoch = r.chance(0.4) ? round(r.float(0.7, 1.9), 2) : 0;
+    return [
+      segment(typ, from, ziel, {
+        by: akte.id, against: kId, outcome: 'gehalten', zone: 3, lane,
+        height: kopf ? undefined : flachOderHalbhoch
+      }),
+      abprallerSegment(ms, seite, ziel, lane)
+    ];
+  }
+
+  if (ausgang === 'latte' || ausgang === 'pfosten') {
+    const ziel = { x: torX, y: 34 + (r.chance(0.5) ? -1 : 1) * MC.torBreiteHalb };
+    return [
+      segment(typ, from, ziel, {
+        by: akte.id, against: kId, outcome: 'abgeprallt', zone: 3, lane,
+        // Latte = Geometrie (2,44 m) und gilt für Fuß wie Kopf. Der Pfosten sagt
+        // über die Höhe nichts; dort entscheidet beim Kopfball sein Profil.
+        height: ausgang === 'latte' ? 2.44 : (kopf ? undefined : 0)
+      }),
+      abprallerSegment(ms, seite, ziel, lane)
+    ];
+  }
+
+  // daneben: knapp neben oder über den Pfosten – aber auf Höhe der Torlinie.
+  const ueber = r.chance(0.4);
+  const y = ueber
+    ? 34 + clamp(r.gauss(0, 2), -3.2, 3.2)
+    : 34 + (r.chance(0.5) ? -1 : 1) * (MC.torBreiteHalb + r.float(1.5, 4));
+  return [segment(typ, from, { x: torX, y }, {
+    by: akte.id, against: kId, outcome: 'aus', zone: 3, lane,
+    // Über das Tor: die Höhe ist Geometrie, sonst wäre es kein „drüber".
+    height: ueber ? round(r.float(2.9, 4.8), 2) : (kopf ? undefined : 0)
+  })];
+}
+
+/**
  * Führt einen Abschluss aus. Generator, weil hier ein Key Moment liegen kann.
- * @param {object} opt { art, druck, kind, vorlage, geo, xgMod, keyPrio, text }
+ * @param {object} opt { art, druck, kind, vorlage, geo, xgMod, keyPrio, text,
+ *                       weg, lane, startedFrom, possessionStart }
+ *        `weg` sind die in phaseSpielen() erzeugten Aufbausegmente — sie werden
+ *        NICHT mehr weggeworfen, der Abschluss hängt nur noch seine eigenen an.
  */
 function* abschluss(ms, seite, gegner, akte, opt) {
   const r = ms.rng;
@@ -2486,7 +3108,12 @@ function* abschluss(ms, seite, gegner, akte, opt) {
       loesung = loesungAnwenden(ms, moment, res, akte, art);
       if (res.targetPlayerId) {
         const ziel = seite.aufDemPlatz.find(a => a.id === res.targetPlayerId);
-        if (ziel && ziel !== akte) { opt.vorlage = akte; akte = ziel; }
+        if (ziel && ziel !== akte) {
+          opt.vorlage = akte;
+          akte = ziel;
+          // Der Aufbauweg zeigte auf den alten Schützen – Empfänger nachziehen.
+          if (opt.weg && opt.weg.length) opt.weg[opt.weg.length - 1].target = akte.id;
+        }
       }
     }
   }
@@ -2508,6 +3135,40 @@ function* abschluss(ms, seite, gegner, akte, opt) {
     ausgang = tor ? 'tor' : null;
   }
 
+  /* --- Weg der Phase: Aufbau (falls vorhanden) + eigene Segmente ----------
+   * Der Aufbau aus phaseSpielen() wird NICHT mehr weggeworfen. Endet er neben
+   * dem Abschlusspunkt, schiebt sich ein kurzes Anschlusssegment dazwischen –
+   * sonst springt der Ball. */
+  let wegVor = (opt.weg && opt.weg.length)
+    ? opt.weg.slice()
+    : (ms.quick ? [] : vorlaufSegmente(ms, seite, gegner, akte, opt.vorlage || null, art, geo, opt));
+  if (!ms.quick && wegVor.length) {
+    const letzte = wegVor[wegVor.length - 1];
+    const lueckeD = Math.hypot(letzte.to.x - geo.at.x, letzte.to.y - geo.at.y);
+    if (lueckeD > 2.5) {
+      const abgeber = letzte.target || letzte.by;
+      const selbst = !abgeber || abgeber === akte.id;
+      const richtung = seite.side === 'home' ? 1 : -1;
+      const zurueck = (geo.at.x - letzte.to.x) * richtung < -1.5;
+      wegVor.push(segment(
+        selbst ? 'dribbling' : (zurueck ? 'ruecklage' : (lueckeD > 14 ? 'steilpass' : 'pass_flach')),
+        letzte.to, geo.at, {
+          by: selbst ? akte.id : abgeber,
+          target: selbst ? null : akte.id,
+          outcome: 'angekommen', zone: 3, lane: opt.lane || letzte.lane
+        }));
+    }
+  }
+  const phasenArt = opt.phasenArt
+    || (art === 'ecke' || art === 'freistoss' || art === 'elfmeter' || opt.standard ? 'standard' : 'angriff');
+  const phasenOpt = {
+    weg: null,
+    kind: phasenArt,
+    startedFrom: opt.startedFrom || standardStart(art),
+    possessionStart: opt.possessionStart || (wegVor.length ? wegVor[0].from : geo.at),
+    lane: opt.lane
+  };
+
   if (tor) {
     let text = null;
     if (loesung) {
@@ -2515,7 +3176,12 @@ function* abschluss(ms, seite, gegner, akte, opt) {
       const pool = loesung.quality >= 0.6 ? T_KEYMOMENT_TOR : T.tor;
       text = r.pick(pool);
     }
-    torFallen(ms, seite, gegner, akte, opt.vorlage || null, art, geo, xg, moment, text, !!opt.standard);
+    if (!ms.quick) {
+      // Der letzte Aufbaupass ging an den Schützen – das macht ihn zum Vorlagengeber.
+      if (wegVor.length && wegVor[wegVor.length - 1].by !== akte.id) wegVor[wegVor.length - 1].target = akte.id;
+      phasenOpt.weg = wegVor.concat(schussSegmente(ms, seite, gegner, akte, art, geo, 'tor', opt));
+    }
+    torFallen(ms, seite, gegner, akte, opt.vorlage || null, art, geo, xg, moment, text, !!opt.standard, phasenOpt);
     return true;
   }
 
@@ -2532,6 +3198,7 @@ function* abschluss(ms, seite, gegner, akte, opt) {
   }
 
   let evType = gross ? 'grosschance' : 'chance';
+  let blocker = null;
 
   if (ausgang === 'parade') {
     evType = 'parade';
@@ -2543,7 +3210,7 @@ function* abschluss(ms, seite, gegner, akte, opt) {
     evType = ausgang;
     if (r.chance(MC.eckeNachAlu * seite.mods.eckenFaktor)) eckeGeben(ms, seite, gegner);
   } else if (ausgang === 'geblockt') {
-    const blocker = zufallsSpieler(ms, gegner, ['ABW', 'MIT']);
+    blocker = zufallsSpieler(ms, gegner, ['ABW', 'MIT']);
     if (blocker) { blocker.zweikaempfe++; blocker.zweikaempfeGewonnen++; gegner.stats.tackles++; }
     if (r.chance(MC.eckeNachBlock * seite.mods.eckenFaktor)) eckeGeben(ms, seite, gegner);
   }
@@ -2563,17 +3230,24 @@ function* abschluss(ms, seite, gegner, akte, opt) {
     }
 
     const zeigen = gross || evType === 'parade' || evType === 'latte' || evType === 'pfosten' || r.chance(0.72);
-    if (zeigen) {
-      const idx = pushEvent(ms, {
-        type: evType, team: seite.side, playerId: akte.id,
-        secondPlayerId: opt.vorlage ? opt.vorlage.id : null,
-        text, xg: round(xg, 3), at, keyMoment: moment || null
-      });
-      const start = zonePunkt(ms, seite.side, 2);
-      bauePhase(ms, seite, art === 'ecke' || art === 'freistoss' || art === 'elfmeter' ? 'standard' : 'angriff',
-        [start, { x: (start.x + at.x) / 2, y: (start.y + at.y) / 2 }, at],
-        art === 'kopfball' ? 'kopfball' : 'schuss', idx);
-    }
+    const idx = zeigen ? pushEvent(ms, {
+      type: evType, team: seite.side, playerId: akte.id,
+      secondPlayerId: opt.vorlage ? opt.vorlage.id : null,
+      text, xg: round(xg, 3), at, keyMoment: moment || null
+    }) : null;
+
+    // Die Phase wird IMMER gebaut – auch wenn der Ticker die Szene nicht zeigt.
+    // Sonst verschwindet der ganze Aufbau, den phaseSpielen() gerade erzeugt hat.
+    if (wegVor.length && wegVor[wegVor.length - 1].by !== akte.id) wegVor[wegVor.length - 1].target = akte.id;
+    const schuss = schussSegmente(ms, seite, gegner, akte, art, geo, ausgang, opt);
+    // Der echte Blocker aus der Statistik gehört ins Segment.
+    if (blocker && schuss[0]) schuss[0].against = blocker.id;
+    bauePhase(ms, seite, phasenArt, wegVor.concat(schuss), {
+      eventIndex: idx,
+      startedFrom: phasenOpt.startedFrom,
+      possessionStart: phasenOpt.possessionStart,
+      lane: phasenOpt.lane
+    });
   }
   return false;
 }
@@ -2597,15 +3271,29 @@ function* eckeAusfuehren(ms, seite, gegner) {
 
   const gefaehrlich = r.chance(MC.eckeAbschlussRate * (1 + seite.mods.flankenlast / 100));
 
+  // Der Eckball selbst: Fahne → Strafraum. Wird die Ecke gefährlich, wandert
+  // dieses Segment als Vorlauf in die Abschlussphase, statt eine eigene zu bilden.
+  let ecke = null, ziel = null, idx = null;
   if (!ms.quick) {
-    const ecke = { x: seite.side === 'home' ? 104 : 1, y: r.chance(0.5) ? 1 : 67 };
-    const ziel = { x: seite.side === 'home' ? 99 : 6, y: 34 + r.float(-6, 6) };
-    const idx = (!gefaehrlich && r.chance(0.55)) ? pushEvent(ms, {
+    ecke = { x: seite.side === 'home' ? 104 : 1, y: r.chance(0.5) ? 1 : 67 };
+    ziel = { x: seite.side === 'home' ? 99 : 6, y: 34 + r.float(-6, 6) };
+    idx = (!gefaehrlich && r.chance(0.55)) ? pushEvent(ms, {
       type: 'ecke', team: seite.side, playerId: flanker ? flanker.id : null,
       text: fuellen(r.pick(T.ecke), textDaten(ms, seite, gegner, { s: flanker ? nam(flanker.p) : 'der Schütze', tw: nam((keeperVon(gegner) || {}).p) })),
       at: ecke
     }) : null;
-    bauePhase(ms, seite, 'standard', [ecke, ziel], 'kopfball', idx);
+    if (!gefaehrlich) {
+      const kopfBall = zufallsSpieler(ms, seite, ['ABW', 'STU']);
+      const klaerer = naechsteVerteidiger(gegner, ziel, 1);
+      bauePhase(ms, seite, 'standard', [
+        segment('flanke', ecke, ziel, {
+          by: flanker ? flanker.id : null,
+          target: kopfBall ? kopfBall.id : null,
+          against: klaerer[0] ? klaerer[0].id : null,
+          outcome: 'abgewehrt', zone: 3, lane: laneAusY(seite, ecke.y)
+        })
+      ], { eventIndex: idx, startedFrom: 'ecke', possessionStart: ecke, lane: laneAusY(seite, ecke.y) });
+    }
   }
 
   if (!gefaehrlich) return false;
@@ -2625,7 +3313,11 @@ function* eckeAusfuehren(ms, seite, gegner) {
   const druck = 55 + r.float(-15, 20);
   return yield* abschluss(ms, seite, gegner, akte, {
     art, geo, druck, kind, keyPrio: 1, targets, standard: true,
-    vorlage: flanker && flanker !== akte ? flanker : null
+    vorlage: flanker && flanker !== akte ? flanker : null,
+    // Vorlauf ist die Flanke von der Eckfahne – kein erfundener Zonenpunkt.
+    vorlaufVon: ecke, vorlaufTyp: 'flanke', vorlaufBy: flanker ? flanker.id : null,
+    startedFrom: 'ecke', possessionStart: ecke,
+    lane: ecke ? laneAusY(seite, ecke.y) : 'zentrum'
   });
 }
 
@@ -2662,7 +3354,8 @@ function* elfmeter(ms, seite, gegner, verursacher, gefoulter) {
   if (k && hatTrait(k.p, 'torwartlegende')) xg *= 0.92;
 
   const tor = yield* abschluss(ms, seite, gegner, akte, {
-    art: 'elfmeter', geo, druck: 10, xg, kind: 'elfmeter', keyPrio: 3
+    art: 'elfmeter', geo, druck: 10, xg, kind: 'elfmeter', keyPrio: 3,
+    startedFrom: 'elfmeter', possessionStart: geo.at, lane: 'zentrum'
   });
   if (!tor && !ms.quick) {
     pushEvent(ms, {
@@ -2701,7 +3394,9 @@ function* freistoss(ms, seite, gegner, tiefe, seitl) {
     });
   }
   return yield* abschluss(ms, seite, gegner, akte, {
-    art: 'freistoss', geo, druck: 28, kind, keyPrio: 2
+    art: 'freistoss', geo, druck: 28, kind, keyPrio: 2,
+    startedFrom: 'freistoss', possessionStart: geo.at,
+    lane: laneAusY(seite, geo.at.y)
   });
 }
 
@@ -2823,7 +3518,11 @@ function zufallsSpieler(ms, seite, gruppen) {
   return null;
 }
 
-/** Ein Zweikampf wird verbucht. */
+/**
+ * Ein Zonenübergang wird als Zweikampf gebucht und liefert die Beteiligten –
+ * die Phasensegmente brauchen echte Akteure statt gewürfelter.
+ * @returns {{a: object|null, d: object|null}}
+ */
 function zweikampfBuchen(ms, angreifer, verteidiger, gewonnen, zone) {
   const a = zufallsSpieler(ms, angreifer, zone <= 1 ? ['MIT', 'ABW'] : ['MIT', 'STU']);
   const d = zufallsSpieler(ms, verteidiger, zone <= 1 ? ['MIT', 'STU'] : ['ABW', 'MIT']);
@@ -2832,7 +3531,10 @@ function zweikampfBuchen(ms, angreifer, verteidiger, gewonnen, zone) {
   return { a, d };
 }
 
-/** Pässe einer Phase verbuchen. */
+/**
+ * Pässe einer Phase verbuchen.
+ * @returns {object[]} die gewählten Passgeber (für die Phasensegmente)
+ */
 function paesseBuchen(ms, seite, gegner, zonen) {
   const r = ms.rng;
   const abschnitte = Math.max(1, zonen + 1);
@@ -2851,6 +3553,7 @@ function paesseBuchen(ms, seite, gegner, zonen) {
   seite.stats.passesOk += ok;
 
   // Auf zwei bis drei Spieler verteilen (für die Einzelstatistik)
+  const passgeber = [];
   const n = Math.min(3, seite.aufDemPlatz.length);
   for (let i = 0; i < n; i++) {
     const a = zufallsSpieler(ms, seite, null);
@@ -2858,7 +3561,9 @@ function paesseBuchen(ms, seite, gegner, zonen) {
     const anteil = Math.round(versuche / n);
     a.paesse += anteil;
     a.paesseAn += Math.round(anteil * quote);
+    passgeber.push(a);
   }
+  return passgeber;
 }
 
 /** Eine komplette Ballbesitzphase. Generator wegen möglicher Key Moments. */
@@ -2914,26 +3619,82 @@ function* phaseSpielen(ms) {
   const stilMod = Math.sqrt(clamp(angreifer.mods.chancenRate * verteidiger.mods.gegenchancenRate, 0.2, 3));
   const chanceMod = stilMod * ms.spielCharakter;
 
-  /* --- Zonenwanderung ---------------------------------------------------- */
+  /* --- Zonenwanderung ----------------------------------------------------
+   * Der Weg wird als SEGMENTE mitgeschrieben (CONTRACTS §6, Phase v2): wer
+   * spielt den Ball von wo nach wo und gegen wen. Der Kanal wird EINMAL für
+   * die Phase gezogen – das beendet den 18-Meter-Zickzack der alten Punkte. */
   const zeichnen = !ms.quick;
-  const punkte = zeichnen ? [zonePunkt(ms, angreifer.side, stufe)] : null;
+  let lane = zeichnen ? laneWaehlen(ms, angreifer) : 'zentrum';
+  const weg = [];
+  let ballAt = null;
+  let possessionStart = null;
+  let traeger = null;
+
+  /** Ein Zonenübergang als Segment. `a` führt den Ball, `d` hält dagegen. */
+  const schritt = (vonZone, nachZone, a, d, ausgang) => {
+    if (!zeichnen) return;
+    if (!ballAt) {
+      ballAt = zonePunkt(ms, angreifer, vonZone, { lane, akte: a });
+      possessionStart = ballAt;
+    }
+    // Echte Verlagerung als eigenes Segment – oder nur ein Kanal weiter.
+    if (r.chance(MC.verlagerungWeit)) {
+      const neu = laneGegenueber(lane);
+      const quer = zonePunkt(ms, angreifer, vonZone, { lane: neu, akte: a });
+      if (traeger && traeger !== a) {
+        weg.push(segment('flanke', ballAt, quer, {
+          by: traeger.id, target: a ? a.id : null, outcome: 'angekommen',
+          zone: vonZone, lane: neu
+        }));
+        ballAt = quer;
+      }
+      lane = neu;
+    } else if (r.chance(MC.verlagerungRate)) {
+      lane = laneNachbar(ms, lane);
+    }
+    const ziel = zonePunkt(ms, angreifer, nachZone, { lane, akte: a });
+    // Keine Höhenvorgabe: der Aufbauweg kennt Flachpass, Steilpass, Dribbling UND
+    // Flanke – die Höhe gehört zum Typ, nicht zum Aufbau (siehe scheitelHoehe()).
+    weg.push(segment(segmentTyp(ms, angreifer, nachZone, lane), ballAt, ziel, {
+      by: a ? a.id : null, against: d ? d.id : null, outcome: ausgang,
+      zone: nachZone, lane
+    }));
+    ballAt = ziel;
+    if (a) traeger = a;
+  };
+
   let zonen = 0;
   let ende = null;
   let sicherung = 0;
+  let letzterGegner = null;
 
   while (sicherung++ < 8) {
     if (stufe === 0) {
       if (r.chance(duell(MC.pAufbau * druckMod, aufbauQ, pressQ, MC.zoneSkala))) {
-        stufe = 1; zonen++; if (zeichnen) punkte.push(zonePunkt(ms, angreifer.side, 1));
-        zweikampfBuchen(ms, angreifer, verteidiger, true, 0);
-      } else { ende = 'verloren0'; zweikampfBuchen(ms, angreifer, verteidiger, false, 0); break; }
+        const zk = zweikampfBuchen(ms, angreifer, verteidiger, true, 0);
+        letzterGegner = zk.d;
+        schritt(0, 1, zk.a, zk.d, 'angekommen');
+        stufe = 1; zonen++;
+      } else {
+        const zk = zweikampfBuchen(ms, angreifer, verteidiger, false, 0);
+        letzterGegner = zk.d;
+        schritt(0, 1, zk.a, zk.d, 'abgefangen');
+        ende = 'verloren0'; break;
+      }
       continue;
     }
     if (stufe === 1) {
       if (r.chance(duell(MC.pMittelfeld * chanceMod * druckMod, mittelQ, mittelD, MC.zoneSkala))) {
-        stufe = 2; zonen++; if (zeichnen) punkte.push(zonePunkt(ms, angreifer.side, 2, 15));
-        zweikampfBuchen(ms, angreifer, verteidiger, true, 1);
-      } else { ende = 'verloren1'; zweikampfBuchen(ms, angreifer, verteidiger, false, 1); break; }
+        const zk = zweikampfBuchen(ms, angreifer, verteidiger, true, 1);
+        letzterGegner = zk.d;
+        schritt(1, 2, zk.a, zk.d, 'angekommen');
+        stufe = 2; zonen++;
+      } else {
+        const zk = zweikampfBuchen(ms, angreifer, verteidiger, false, 1);
+        letzterGegner = zk.d;
+        schritt(1, 2, zk.a, zk.d, 'abgefangen');
+        ende = 'verloren1'; break;
+      }
       continue;
     }
     if (stufe === 2) {
@@ -2943,22 +3704,61 @@ function* phaseSpielen(ms) {
         + (angreifer.stil === 'kick_and_rush' ? 0.2 : 0)) * (istKonter ? MC.konterDistanz : 1);
       if (r.chance(MC.distanzschussRate * chanceMod * distNeigung)) { ende = 'distanz'; break; }
       if (r.chance(duell(MC.pStrafraum * chanceMod * druckMod, angriffQ, abwehrQ, MC.zoneSkala))) {
-        stufe = 3; zonen++; if (zeichnen) punkte.push(zonePunkt(ms, angreifer.side, 3, 10));
-        zweikampfBuchen(ms, angreifer, verteidiger, true, 2);
-      } else { ende = 'verloren2'; zweikampfBuchen(ms, angreifer, verteidiger, false, 2); break; }
+        const zk = zweikampfBuchen(ms, angreifer, verteidiger, true, 2);
+        letzterGegner = zk.d;
+        schritt(2, 3, zk.a, zk.d, 'angekommen');
+        stufe = 3; zonen++;
+      } else {
+        const zk = zweikampfBuchen(ms, angreifer, verteidiger, false, 2);
+        letzterGegner = zk.d;
+        schritt(2, 3, zk.a, zk.d, 'abgefangen');
+        ende = 'verloren2'; break;
+      }
       continue;
     }
     // Zone 3 – Strafraum
     if (r.chance(MC.strafraumfoulAnteil)) { ende = 'strafraumfoul'; break; }
     if (r.chance(MC.eigentorRate)) { ende = 'eigentor'; break; }
     if (r.chance(duell(MC.pAbschluss * druckMod, angriffQ, abwehrQ, MC.zoneSkala))) { ende = 'schuss'; }
-    else { ende = 'geklaert'; zweikampfBuchen(ms, angreifer, verteidiger, false, 3); }
+    else {
+      ende = 'geklaert';
+      const zk = zweikampfBuchen(ms, angreifer, verteidiger, false, 3);
+      letzterGegner = zk.d;
+      if (zeichnen && ballAt && zk.d) {
+        // Der Verteidiger drischt den Ball aus der Gefahrenzone.
+        const richtung = angreifer.side === 'home' ? -1 : 1;
+        weg.push(segment('klaerung', ballAt, {
+          x: clamp(ballAt.x + richtung * r.float(16, 30), 1, MC.feldL - 1),
+          y: clamp(ballAt.y + r.gauss(0, 9), 1, MC.feldB - 1)
+        }, { against: zk.d.id, outcome: 'abgewehrt', zone: 3, lane }));
+      }
+    }
     break;
   }
   if (!ende) ende = 'verloren1';
 
-  paesseBuchen(ms, angreifer, verteidiger, zonen);
+  const passgeber = paesseBuchen(ms, angreifer, verteidiger, zonen);
   angreifer.stats.besitzGewicht += 1 + zonen * MC.besitzZonenGewicht;
+
+  // Empfänger nachziehen: der Ballführende des Folgesegments ist das Ziel des
+  // vorherigen Passes. Bleibt der Ball beim selben Mann, war es ein Laufweg.
+  for (let i = 0; i < weg.length - 1; i++) {
+    if (weg[i].target) continue;
+    const nb = weg[i + 1].by;
+    if (nb && nb !== weg[i].by) weg[i].target = nb;
+  }
+  // Letztes Segment ohne Empfänger: einer der gebuchten Passgeber übernimmt.
+  const letztesSeg = weg.length ? weg[weg.length - 1] : null;
+  if (letztesSeg && !letztesSeg.target && letztesSeg.type !== 'klaerung') {
+    for (const p of passgeber) {
+      if (p && p.id !== letztesSeg.by && p.pos !== 'TW') { letztesSeg.target = p.id; break; }
+    }
+  }
+  const phasenOpt = {
+    startedFrom: 'ballgewinn',
+    possessionStart: possessionStart || ballAt,
+    lane
+  };
 
   const phasenArt = istKonter ? 'konter' : (stufe >= 2 ? 'angriff' : 'aufbau');
 
@@ -2984,7 +3784,7 @@ function* phaseSpielen(ms) {
           text: fuellen(r.pick(T.konter), textDaten(ms, angreifer, verteidiger, {
             s: nam(akte.p), v: vorlage ? nam(vorlage.p) : nam(akte.p)
           })),
-          at: punkte[punkte.length - 1]
+          at: ballAt || phasenOpt.possessionStart
         });
       }
       const kombi = !ms.quick && zonen >= 3 && r.chance(MC.kmKombinationRate);
@@ -2994,7 +3794,7 @@ function* phaseSpielen(ms) {
           text: fuellen(r.pick(T.kombination), textDaten(ms, angreifer, verteidiger, {
             s: nam(akte.p), v: vorlage ? nam(vorlage.p) : nam(akte.p)
           })),
-          at: punkte[punkte.length - 1]
+          at: ballAt || phasenOpt.possessionStart
         });
       }
       const kind = (zonen >= 3 && kmErlaubt(ms, angreifer, 'kombination', 1) && r.chance(MC.kmKombinationRate))
@@ -3003,7 +3803,9 @@ function* phaseSpielen(ms) {
         ? angreifer.aufDemPlatz.filter(a => a !== akte && a.pos !== 'TW').slice(0, 4).map(a => a.p)
         : [];
       yield* abschluss(ms, angreifer, verteidiger, akte, {
-        art, druck, vorlage, kind, keyPrio: kind ? 1 : undefined, targets
+        art, druck, vorlage, kind, keyPrio: kind ? 1 : undefined, targets,
+        weg, lane, startedFrom: phasenOpt.startedFrom, possessionStart: phasenOpt.possessionStart,
+        phasenArt
       });
       break;
     }
@@ -3013,7 +3815,9 @@ function* phaseSpielen(ms) {
       if (!akte) break;
       const vorlage = r.chance(0.45) ? vorlageWaehlen(ms, angreifer, akte) : null;
       yield* abschluss(ms, angreifer, verteidiger, akte, {
-        art: 'distanz', druck: clamp(35 + r.float(-15, 25), 5, 95), vorlage
+        art: 'distanz', druck: clamp(35 + r.float(-15, 25), 5, 95), vorlage,
+        weg, lane, startedFrom: phasenOpt.startedFrom, possessionStart: phasenOpt.possessionStart,
+        phasenArt
       });
       break;
     }
@@ -3022,13 +3826,21 @@ function* phaseSpielen(ms) {
       angreifer.stats.offsides++;
       const akte = schuetzeWaehlen(ms, angreifer, 'schuss');
       if (!ms.quick && akte) {
-        const at = punkte[punkte.length - 1];
+        // Der Steilpass läuft ins Abseits – ein eigenes Segment, damit man sieht, wohin.
+        const von = ballAt || zonePunkt(ms, angreifer, 2, { lane, akte });
+        const ziel = zonePunkt(ms, angreifer, 3, { lane, akte });
+        weg.push(segment('steilpass', von, ziel, {
+          by: traeger ? traeger.id : null, target: akte.id,
+          against: letzterGegner ? letzterGegner.id : null,
+          outcome: 'abseits', zone: 3, lane
+        }));
+        const at = ziel;
         const idx = pushEvent(ms, {
           type: 'abseits', team: angreifer.side, playerId: akte.id,
           text: fuellen(r.pick(T.abseits), textDaten(ms, angreifer, verteidiger, { s: nam(akte.p) })),
           at
         });
-        bauePhase(ms, angreifer, phasenArt, punkte, 'lauf', idx);
+        bauePhase(ms, angreifer, phasenArt, weg, Object.assign({ eventIndex: idx }, phasenOpt));
       }
       return;
     }
@@ -3074,13 +3886,16 @@ function* phaseSpielen(ms) {
             return;
           }
         }
-        if (!ms.quick) bauePhase(ms, angreifer, phasenArt, punkte, 'tackling', null);
+        if (!ms.quick) {
+          if (weg.length) weg[weg.length - 1].outcome = 'gefoult';
+          bauePhase(ms, angreifer, phasenArt, weg, phasenOpt);
+        }
         return;
       }
 
       if (zone >= 2 && r.chance(MC.eckeNachAngriff * angreifer.mods.eckenFaktor)) {
         eckeGeben(ms, angreifer, verteidiger);
-        if (!ms.quick) bauePhase(ms, angreifer, phasenArt, punkte, 'lauf', null);
+        if (!ms.quick) bauePhase(ms, angreifer, phasenArt, weg, phasenOpt);
         return;
       }
 
@@ -3092,18 +3907,18 @@ function* phaseSpielen(ms) {
             idx = pushEvent(ms, {
               type: 'ballverlust', team: angreifer.side, playerId: akte.id,
               text: fuellen(r.pick(T.ballverlust), textDaten(ms, angreifer, verteidiger, { s: nam(akte.p) })),
-              at: punkte[punkte.length - 1]
+              at: ballAt || phasenOpt.possessionStart
             });
           }
         }
-        bauePhase(ms, angreifer, phasenArt, punkte, r.chance(0.5) ? 'pass' : 'dribbling', idx);
+        bauePhase(ms, angreifer, phasenArt, weg, Object.assign({ eventIndex: idx }, phasenOpt));
       }
       return;
     }
   }
 
   if (!ms.quick && ende !== 'schuss' && ende !== 'distanz') {
-    bauePhase(ms, angreifer, phasenArt, punkte, 'pass', null);
+    bauePhase(ms, angreifer, phasenArt, weg, phasenOpt);
   }
 }
 
@@ -3151,8 +3966,20 @@ function anpfiff(ms) {
     at: { x: 52.5, y: 34 }
   });
   if (!ms.quick) {
-    bauePhase(ms, ms.sides.home, 'aufbau',
-      [{ x: 52.5, y: 34 }, { x: 44, y: 30 }, { x: 34, y: 40 }], 'pass', ms.events.length - 1);
+    const H = ms.sides.home;
+    const anstoss = { x: 52.5, y: 34 };
+    const ab = zufallsSpieler(ms, H, ['STU', 'MIT']);
+    const zurueck = zufallsSpieler(ms, H, ['MIT', 'ABW']);
+    const p1 = { x: 47, y: 30 };
+    const p2 = { x: 38, y: 40 };
+    bauePhase(ms, H, 'aufbau', [
+      segment('ruecklage', anstoss, p1, {
+        by: ab ? ab.id : null, target: zurueck ? zurueck.id : null, zone: 1, lane: 'zentrum'
+      }),
+      segment('pass_flach', p1, p2, {
+        by: zurueck ? zurueck.id : null, target: ab ? ab.id : null, zone: 1, lane: 'zentrum'
+      })
+    ], { eventIndex: ms.events.length - 1, startedFrom: 'anstoss', possessionStart: anstoss, lane: 'zentrum' });
   }
 }
 

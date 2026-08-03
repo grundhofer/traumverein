@@ -241,6 +241,117 @@ TeamStats = { possession, shots, shotsOnTarget, xg, corners, fouls, offsides, pa
 }
 ```
 
+**Dieser Altblock bleibt in voller Länge gültig und PFLICHT.** `ball[]`, `actors[]`,
+`duration` und `eventIndex` werden von der Engine immer befüllt. Ein Renderer, der die unten
+beschriebenen `segments` nicht kennt, läuft unverändert weiter.
+
+#### 6.2 Phase v2 — Segmente (additiv, alle neuen Felder optional)
+
+Seit dem Umbau „Phase v2" schreibt die Engine den Spielverlauf als **Segmente** mit. `ball[]`,
+`actors[]` und `duration` werden daraus **abgeleitet** – die dargestellten Spieler sind damit
+dieselben, die die Simulation gerechnet hat (vorher wurden sie gewürfelt).
+
+```js
+const phase = {
+  /* ---------- ALT, weiterhin PFLICHT (siehe oben) ---------- */
+  minute: 37, team: 'home', kind: 'aufbau',
+  ball: [ { x: 34.0, y: 21.0, t: 0 }, { x: 61.5, y: 18.4, t: 0.41 } ],
+  actors: [ { playerId: 'p12', x: 33.0, y: 21.4, action: 'pass',
+              /* --- neu, optional --- */
+              role: 'passgeber',       // 'passgeber'|'empfaenger'|'dribbler'|'schuetze'|'vorlage'|
+                                       // 'verteidiger'|'blocker'|'torwart'|'mitlaeufer'
+              from: { x: 30.2, y: 22.0 },   // Startposition; fehlt sie, gilt die aktuelle
+              t0: 0, t1: 0.41 } ],          // Zeitfenster DIESES Akteurs
+  duration: 3.8,                // Σ Segmentdauern, nicht mehr gewürfelt
+  eventIndex: 12,
+
+  /* ---------- NEU, alles optional ---------- */
+  v: 2,                         // Schemaversion. Fehlt sie ⇒ alte Phase ⇒ ball/actors sind Wahrheit
+  startedFrom: 'ballgewinn',    // 'anstoss'|'abstoss'|'einwurf'|'ecke'|'freistoss'|'elfmeter'|
+                                // 'ballgewinn'|'weiter'
+  possessionStart: { x: 30.2, y: 22.0 },  // wo der Ball zu Beginn LIEGT — gegen den Sprungschnitt
+  lane: 'halblinks',            // 'links'|'halblinks'|'zentrum'|'halbrechts'|'rechts'
+  formationId: '4-4-2',         // Grundordnung der angreifenden Seite
+
+  segments: [{
+    type: 'steilpass',          // 'pass_flach'|'steilpass'|'flanke'|'schuss'|'dribbling'|
+                                // 'kopfball'|'klaerung'|'abpraller'|'abstoss'|'einwurf'|'ruecklage'
+    from: { x: 30.2, y: 22.0 }, // Weltmeter, §1
+    to:   { x: 61.5, y: 18.4 },
+    t0: 0, t1: 0.41,            // Zeitfenster in der Phase, aus dist/segTempo berechnet
+    speed: 18,                  // m/s, informativ (der Renderer rechnet mit t0/t1)
+    height: 6.9,                // OPTIONAL, Scheitelhöhe in Metern — drei Aussagen,
+                                // „Feld fehlt" und „0" sind NICHT dasselbe (siehe unten)
+    by: 'p12',                  // wer den Ball spielt (echte playerId aus der Simulation)
+    target: 'p19',              // vorgesehener Empfänger (null bei Schuss/Klärung)
+    against: 'p04',             // direkter Gegenspieler/Verteidiger/Torwart (oder null)
+    outcome: 'angekommen',      // 'angekommen'|'abgefangen'|'geblockt'|'gehalten'|'tor'|'aus'|
+                                // 'abgewehrt'|'gefoult'|'abgeprallt'|'abseits'
+    zone: 1,                    // 0..3 aus Sicht der angreifenden Seite
+    lane: 'halblinks'           // Kanal DIESES Segments (macht Verlagerung sichtbar)
+  }]
+};
+```
+
+**Ableitungsregeln** (in `bauePhase()`, damit jeder Aufrufer sie umsonst bekommt):
+
+* `ball[0] = { ...segments[0].from, t: 0 }`, danach je Segment `{ ...seg.to, t: seg.t1 }`;
+  identische aufeinanderfolgende Punkte werden zusammengefasst, der letzte Punkt hat `t === 1`.
+* `actors` über die Rollen-Map, je `playerId` genau **ein** Eintrag; Rollenpriorität
+  `schuetze > vorlage > passgeber/dribbler > empfaenger > verteidiger/blocker > torwart >
+  mitlaeufer`. Die Aktion kommt aus `LEGACY_ACTION[seg.type]`
+  (`pass_flach|steilpass|flanke|abstoss|einwurf|ruecklage` → `'pass'`, `dribbling` →
+  `'dribbling'`, `schuss` → `'schuss'`, `kopfball` → `'kopfball'`, `klaerung` → `'tackling'`,
+  `abpraller` → `'lauf'`); Torwart bekommt `'parade'`, Verteidiger/Blocker `'tackling'`,
+  Mitläufer `'lauf'`.
+* `duration = Σ (dist/segTempo[type] + segKontakt)`, geklemmt auf **0,6–9 s**.
+* Der Ballspieler steht auf `seg.from`, der Empfänger auf `seg.to` minus 1,2 m Ballvorlage,
+  der Torwart auf der Torlinie mit Auslauf `x = torX ∓ (0.8 + 1.6·(1 − dist/25))`.
+  **Kein Akteur steht im Netz:** `x` liegt immer in `[0.5, 104.5]`.
+* Jeder Schuss läuft bis zur Torlinie – auch bei Parade (1,2 m davor), Latte/Pfosten
+  (`y = 34 ∓ 3.66`) und „daneben". Nur `outcome: 'geblockt'` endet früher, denn genau das
+  ist seine Aussage. Danach folgt in der Regel ein `abpraller`-Segment.
+
+**Ballhöhe (`height`) — verbindlich:**
+
+`height` hat **drei** Zustände, und ein Renderer muss alle drei unterscheiden:
+
+| Zustand | Bedeutung | Renderer |
+|---|---|---|
+| Feld **fehlt** (`!('height' in seg)`) | Die Engine macht **keine** Vorgabe. | `ballistik.segmentFlug()` bestimmt die Bahn aus dem Segmenttyp (`SEGMENT_TYPEN[typ].loft`). |
+| `height === 0` | **Ausdrücklich flach.** | Bodenball. Ein *getretener* Bodenball darf dabei sichtbar hoppeln (≤ 65 cm) — das ist die Darstellung von „flach", keine Höhenvorgabe. |
+| `height > 0` | Genau diese **Scheitelhöhe** in Metern. | Übernehmen, in `[0,15; 24]` m klemmen. |
+
+`height: 0` und ein fehlendes Feld sind daher **nicht** austauschbar. Ein Schreiber, der das
+Feld immer setzt (`height: o.height || 0`), macht den ersten Zustand unerreichbar und liefert
+jeden Ball ohne eigene Vorgabe flach aus.
+
+Was die Engine heute vorgibt (`MATCH_CONSTANTS.scheitel`, Scheitel = `basis + je·Distanz`,
+geklemmt): `flanke` 3,0 + 0,14·d auf 3,0…9,0 m bis 45 m Segmentlänge · `klaerung` 1,6 + 0,20·d
+auf 1,6…9,0 m bis 38 m · `dribbling` fest 0. Grund: der Typ-Loft allein trägt gemessen nur
+2,23 m bei einer 30-m-Flanke und 3,05 m bei einer 30-m-Klärung — beides zu flach. Jenseits der
+genannten Längen ist es keine Flanke und kein Befreiungsschlag mehr, sondern ein weiter
+Verlagerungsball; dort gibt die Engine nichts vor. Schuss, Kopfball, Latte und „drüber"
+setzen ihre Höhe fallweise selbst (auch die 0). Alle übrigen Typen lassen das Feld weg.
+Die Vorgabe ist reine Geometrie und zieht **keinen** rng-Zug — `state.rngState` wird
+serialisiert, eine Höhenvorgabe darf den Spielverlauf nicht verschieben.
+
+**Abwärtskompatibilität — verbindlich:**
+
+1. `ball[]` und `actors[]` bleiben **Pflicht** und werden immer befüllt.
+2. `pitch.js` verzweigt genau einmal:
+   `const nutzeSegmente = phase && phase.v >= 2 && Array.isArray(phase.segments) && phase.segments.length;`
+   Sonst exakt der heutige Pfad.
+3. Kein Zweig darf werfen, wenn `segments` unvollständig ist: fehlt `to`, wird das Segment
+   übersprungen.
+4. Phasen werden **nie** serialisiert – es gibt keine Savegame-Migration. Der Vertrag ist
+   trotzdem öffentlich, weil `render/pitch.js` als eigenständig benutzbare API dokumentiert ist;
+   deshalb ist die additive Form Pflicht.
+
+**Balancehinweis:** `stats.passes` und `stats.tackles` sind reine Zählwerke. Sie liegen bei
+**850–1.000 Pässen** und **95–115 Zweikämpfen** je Partie (beide Mannschaften zusammen) und
+werden von `tools/test-match.js` als Korridor geprüft.
+
 ### 6.0a Eingriffe während des Spiels
 
 Die Engine liest **zu Beginn jeder Minute** die folgenden Felder ihrer `MatchTeam`-Objekte neu ein.
@@ -345,6 +456,25 @@ export const minigame = {
   finish(resolution) // optionale Alternative zum return
 }
 ```
+
+**Zusätzlicher Prüfexport `modell` (additiv, optional, aber empfohlen):**
+
+Ein Minispiel darf neben `minigame` einen zweiten, benannten Export `modell` anbieten. Er macht
+die Physik- und Trefferentscheidung von außen messbar, ohne das Spiel zu starten:
+
+```js
+export const modell = { /* reine Funktionen, z. B.: */
+  flugzeit(power, schuss),                  // Sekunden
+  twReichweiteBei(tFlug, hoehe, keeper),    // Meter
+  parade(schuss, keeper, rng)               // -> { gehalten, ... }
+}
+```
+
+Harte Auflagen:
+- **DOM-frei.** Kein `document`, kein `canvas`, kein Listener – der Export muss unter Node laufen.
+- **`rng` immer als Parameter**, nie als Modulzustand. `Math.random()` bleibt verboten (§0.3).
+- **Rein additiv.** Weder Signatur noch Verhalten von `minigame` dürfen sich dadurch ändern.
+- Dient ausschließlich der Prüfung (`tools/test-*.js`); das Spiel selbst nutzt weiterhin `minigame`.
 
 Regeln für Minispiele:
 - Laufen komplett auf `requestAnimationFrame`, sauberes Aufräumen (Listener entfernen!) vor dem Auflösen.
