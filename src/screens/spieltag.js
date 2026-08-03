@@ -1484,16 +1484,31 @@ async function hoehepunkteZeigen(state, fixture, result) {
   }
 
   const canvas = el('canvas', { width: 1040, height: 660, style: { display: 'block', maxWidth: '92vw', height: 'auto' } });
+  /* Bauchbinde: Der Reportertext gehört über das Bild, nicht unter die
+     Leinwand. HTML statt Canvas-Schrift – so bricht er selbst um und bleibt
+     lesbar, egal wie klein das Fenster skaliert wird. */
+  const binderMinute = el('span', { style: { color: '#ffb400', fontWeight: '700', marginRight: '10px' } }, '');
+  const binderText = el('span', {}, '');
+  const bauchbinde = el('div', {
+    style: {
+      position: 'absolute', left: '0', right: '0', bottom: '0', zIndex: '3',
+      display: 'none', padding: '6px 14px',
+      background: 'linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.78))',
+      color: '#f2e8cf', fontSize: '14px', letterSpacing: '.4px',
+      textAlign: 'left', pointerEvents: 'none'
+    }
+  }, binderMinute, binderText);
   const zaehler = el('div', { class: 'tv-minispiel__hinweis' }, 'Höhepunkte werden geladen …');
   const schliessenBtn = button('Schließen (ESC)', () => aufraeumen(), { kind: 'danger', size: 'klein' });
   const overlay = el('div', { class: 'tv-minispiel' },
-    el('div', { class: 'tv-minispiel__buehne' }, canvas),
+    el('div', { class: 'tv-minispiel__buehne' }, canvas, bauchbinde),
     zaehler,
     el('div', { class: 'tv-zeile' }, schliessenBtn));
   document.body.appendChild(overlay);
 
   let abbruch = false;
   let view = null;
+  let ton = null;
 
   const taste = (e) => { if (e.key === 'Escape') { e.preventDefault(); aufraeumen(); } };
   document.addEventListener('keydown', taste, true);
@@ -1501,6 +1516,9 @@ async function hoehepunkteZeigen(state, fixture, result) {
   function aufraeumen() {
     abbruch = true;
     document.removeEventListener('keydown', taste, true);
+    // Zwingend vor allem anderen: Ein Stadion, das nach dem Schließen
+    // weiterrauscht, bekommt man nur noch mit einem Neuladen still.
+    if (ton) { try { ton.aus(true); } catch (err) { /* egal */ } ton = null; }
     if (view && view.destroy) { try { view.destroy(); } catch (err) { /* egal */ } }
     if (overlay.parentNode) overlay.remove();
     hoehepunkte = null;
@@ -1524,21 +1542,78 @@ async function hoehepunkteZeigen(state, fixture, result) {
     return;
   }
 
+  /* Der Ton der Wiederholung. Die Klangbank gehört dem Rahmen; sie wird hier
+     nur benutzt. Kommt keine (Node, alter Browser, Ton abgeschaltet), läuft
+     die Wiederholung unverändert – nur eben lautlos. */
   const stand = [0, 0];
+  try {
+    const heimVerein = state.clubs[fixture.homeId];
+    const rahmen = await import('../main.js');
+    const bank = (rahmen && rahmen.klang) || null;
+    if (mod.ok && mod.matchday.tonRegie) {
+      ton = mod.matchday.tonRegie(bank, state, fixture, {
+        venue: {
+          capacity: (heimVerein && heimVerein.stadium && heimVerein.stadium.capacity) || 1,
+          attendance: result.attendance || 0
+        },
+        zuschauer: { gesamt: result.attendance || 0 }
+      });
+    }
+  } catch (err) {
+    console.warn('[spieltag] Ton für die Wiederholung nicht erreichbar:', err);
+    ton = null;
+  }
+  if (abbruch) { if (ton) { try { ton.aus(true); } catch (err) { /* egal */ } ton = null; } return; }
+  if (ton) ton.einlauf(stand);
+
+  /** Kunstpause zwischen zwei Szenen. Bricht der Zuschauer ab, wird nicht gewartet. */
+  const warte = (ms) => new Promise(res => {
+    if (abbruch || !(ms > 0)) { res(); return; }
+    setTimeout(res, ms);
+  });
+
+  const tempo = Math.max(0.25, Number(state.settings && state.settings.speed) || 2);
+
   for (let i = 0; i < phasen.length; i++) {
     if (abbruch) break;
     const ph = phasen[i];
     const ev = (result.events || [])[ph.eventIndex];
     if (ev && ev.score) { stand[0] = ev.score[0]; stand[1] = ev.score[1]; }
-    zaehler.textContent = `Szene ${i + 1} von ${phasen.length} · ${ph.minute}' · ${ev && ev.text ? ev.text : ''}`;
+    zaehler.textContent = `Szene ${i + 1} von ${phasen.length}`;
+    binderMinute.textContent = `${ph.minute}'`;
+    binderText.textContent = ev && ev.text ? ev.text : '';
+    bauchbinde.style.display = 'block';
     try {
       if (view.setClock) view.setClock(ph.minute, ev && ev.addedTime || 0, stand);
+      if (ton) ton.takt(ph.minute, stand);
+      // Schnittkarte: Jede Szene wird mit ihrer Minute angesagt.
+      if (view.showBanner) view.showBanner(`${ph.minute}'`, 700);
       await view.playPhase(ph);
-      if (ev && ev.type === 'tor' && view.showBanner) view.showBanner('T O R !', 1200);
+      if (ev && ev.type === 'tor') {
+        /* Der Zusatz ist Pflicht, nicht Schmuck: `pitch.js:isGoalBanner()`
+           erkennt einen nackten „T O R !"-Text und feuert dann selbst Konfetti
+           auf die Ballposition – zusammen mit dem celebrate() unten wären das
+           zwei Salven an zwei Orten. Mit Namen greift die Erkennung nicht. */
+        const schuetze = state.players[ev.playerId];
+        const verein = state.clubs[ev.team === 'away' ? fixture.awayId : fixture.homeId];
+        const zusatz = (schuetze && schuetze.shortName)
+          || (verein && (verein.shortName || verein.name)) || '';
+        if (view.showBanner) view.showBanner(zusatz ? `T O R !  ${zusatz}` : 'T O R !', 1200);
+        // Ohne Zusatz hat das Banner schon gejubelt – dann nicht noch einmal.
+        if (zusatz && view.celebrate) view.celebrate(ev.at);
+        if (ton) { ton.ereignis(ev, stand, false); ton.gong('tor'); }
+        await warte(1200);
+      } else {
+        if (ton && ev) ton.ereignis(ev, stand, false);
+        await warte(500 / tempo);
+      }
     } catch (err) {
       console.warn('[spieltag] Phase nicht abspielbar:', err);
     }
   }
+
+  if (ton) { try { ton.aus(); } catch (err) { /* egal */ } ton = null; }
+  bauchbinde.style.display = 'none';
 
   if (!abbruch) {
     zaehler.textContent = 'Das war es. ESC oder „Schließen" bringt Sie zurück.';
