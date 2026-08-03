@@ -3,6 +3,22 @@
 Ein Fußballmanager im Geist von **Anstoss 1/2**: Managerbüro, Aktenschrank-Navigation,
 trockener Reporterton – aber mit moderner Simulationstiefe und einem eigenen Dreh.
 
+## Worum es geht
+
+Das Ziel: ein Fußballmanager, der sich anfühlt wie **Anstoss 1/2** – Büro statt Tabelle,
+Reporterton statt Statistikblatt – aber mit einer Simulation, die heutigen Ansprüchen
+standhält. Dazu ein Dreh, den es so nicht gibt: **jeder Verein tritt mit seiner historisch
+stärksten Elf an, gemeinsam mit dem aktuellen Kader.**
+
+Umgesetzt in **reinem JavaScript, ohne eine einzige Abhängigkeit und ohne Build-Schritt** –
+ES-Module, Canvas 2D, ein Entwicklungsserver aus Node-Bordmitteln. Das ist keine Nostalgie,
+sondern eine Bedingung: Was hier liegt, läuft in zehn Jahren noch, wenn ein Browser es öffnet.
+
+Die verbindlichen Modulverträge stehen in [`docs/CONTRACTS.md`](docs/CONTRACTS.md), der
+Bauverlauf in [`docs/ROADMAP.md`](docs/ROADMAP.md). Grundsatz beider Dokumente: **jede Zahl
+ist gemessen, nicht behauptet** – `npm run check` fährt 30 Prüfstände, und was ein Ziel
+verfehlt, steht dort als offener Punkt mit Zahl, statt stillschweigend zu verschwinden.
+
 ## Der besondere Dreh
 
 **Jeder Verein tritt mit seiner historisch stärksten Mannschaft an – zusammen mit dem aktuellen Kader.**
