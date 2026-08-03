@@ -17,9 +17,13 @@
  *  7. Reihenfolge: der Torwart schießt zuletzt, Verletzte gar nicht.
  *  8. Interaktiv: KeyMoment nach CONTRACTS 6.1, nur für interactiveSide.
  *  9. Texte: deutsch, gefüllt, ohne Platzhalterreste.
+ * 10. Mensch gegen KI: Der Mensch schießt über interactive/penalty.js, die KI
+ *     über trefferChance(). Beide müssen im selben Korridor liegen und dürfen
+ *     höchstens 4 Prozentpunkte auseinanderliegen (Umbauplan Paket 4, Punkt 10).
  */
 
 import { elfmeterschiessen, schuetzenreihenfolge, SHOOTOUT_CONSTANTS } from '../src/engine/shootout.js';
+import { modell as penaltyModell } from '../src/interactive/penalty.js';
 import { createNewGame } from '../src/core/state.js';
 import { buildMatchTeam } from '../src/core/loop.js';
 import { createRng } from '../src/core/rng.js';
@@ -387,6 +391,99 @@ section('Randfälle');
 
   ok(SHOOTOUT_CONSTANTS.regulaer === 5, 'Fünf reguläre Schützen je Mannschaft');
   ok(SHOOTOUT_CONSTANTS.basis > 0.5 && SHOOTOUT_CONSTANTS.basis < 1, 'Basiswahrscheinlichkeit plausibel');
+}
+
+/* ------------------------------------------------ Mensch gegen KI (Paket 4) */
+
+section('Mensch gegen KI');
+
+/*
+ * Das Elfmeterschießen fährt zwei Modelle nebeneinander: die KI würfelt über
+ * trefferChance(), der Mensch schießt über interactive/penalty.js. Kippt eines
+ * gegen das andere, ist das Schießen als Duell kaputt — deshalb wird hier die
+ * ganze Kette gemessen: KeyMoment → modell.aufloesen() → ausMinispiel().
+ *
+ * Der Mensch ist derselbe Referenzspieler wie in tools/test-elfmeter.js: er
+ * zielt in die Ecke, hält den Kraftbalken nahe POWER_IDEAL an und klickt den
+ * Präzisionsläufer mit ~55 ms Zeitfehler.
+ */
+{
+  const KE = penaltyModell.KONSTANTEN;
+  const DIFF_MG = DIFF.minigame;
+
+  const koennen = (p) => {
+    const a = (p && p.attributes) || {};
+    const v = (k, f) => (typeof a[k] === 'number' ? a[k] : f);
+    return Math.min(1, Math.max(0,
+      (v('schuss', 50) * 0.32 + v('technik', 50) * 0.22 +
+       v('nervenstaerke', 50) * 0.30 + v('standards', 50) * 0.16) / 100));
+  };
+
+  /** Die drei Eingaben des Referenzspielers. */
+  function menschEingabe(rng, actor) {
+    const skill = koennen(actor);
+    const r = rng.next();
+    let u;
+    if (r < 0.46) u = rng.float(2.45, 3.20);
+    else if (r < 0.68) u = rng.float(1.30, 2.45);
+    else if (r < 0.84) u = rng.float(0.00, 1.30);
+    else u = rng.float(3.15, 3.95);
+    if (rng.chance(0.5)) u = -u;
+    const rh = rng.next();
+    const h = rh < 0.58 ? rng.float(0.15, 0.75) : rh < 0.88 ? rng.float(0.75, 1.60) : rng.float(1.60, 2.25);
+
+    const nerven = (actor && actor.attributes && actor.attributes.nervenstaerke) || 50;
+    const wobble = Math.max(0.06, 0.62 * (1 - nerven / 100) * DIFF_MG);
+    const precWin = Math.min(0.30, Math.max(0.035,
+      (KE.PREC_WIN_MIN + (KE.PREC_WIN_MAX - KE.PREC_WIN_MIN) * skill) / Math.min(1.8, Math.max(0.5, DIFF_MG))));
+    const precPeriod = KE.PREC_PERIOD_MS * (0.72 + 0.63 * skill) / Math.min(1.7, Math.max(0.6, DIFF_MG));
+    const fehlerMs = rng.gauss(0, 55);
+    const off = Math.min(1, Math.abs(4 * fehlerMs / precPeriod));
+    const precMiss = Math.min(1, Math.max(0, (off - precWin * 2) / Math.max(0.08, 1 - precWin * 2)));
+
+    return {
+      aimU: Math.min(4.6, Math.max(-4.6, u + rng.float(-1, 1) * wobble)),
+      aimH: Math.min(3.05, Math.max(-0.1, h + rng.float(-1, 1) * wobble * 0.55)),
+      power: Math.min(1, Math.max(0.30, KE.POWER_IDEAL + rng.gauss(0, 0.09))),
+      precMiss,
+      precDir: fehlerMs >= 0 ? 1 : -1
+    };
+  }
+
+  let menschSchuss = 0, menschTor = 0, kiSchuss = 0, kiTor = 0;
+  const RUNDEN = 500;
+  for (let i = 0; i < RUNDEN; i++) {
+    const a = vereine[i % vereine.length];
+    const b = vereine[(i * 7 + 3) % vereine.length];
+    if (a === b) continue;
+    // Wie matchday.js: das Minispiel bekommt eine eigene, geforkte rng.
+    const mgRng = createRng('mensch:' + i);
+    const erg = await elfmeterschiessen({
+      heim: teamVon(a, true), gast: teamVon(b, false),
+      rng: createRng('mvk:' + i), difficulty: DIFF,
+      interactive: false, interactiveSide: 'home',
+      onKeyMoment: async (m) => {
+        const res = penaltyModell.aufloesen(mgRng,
+          { actor: m.actor, keeper: m.keeper, diff: DIFF_MG },
+          menschEingabe(mgRng, m.actor));
+        if (res.flug) res.flug.freigeben();
+        return { outcome: res.outcome, quality: res.quality, targetPlayerId: null, xgDelta: res.xgDelta };
+      }
+    });
+    for (const s of erg.schuesse) {
+      if (s.team === 'home') { menschSchuss++; if (s.getroffen) menschTor++; }
+      else { kiSchuss++; if (s.getroffen) kiTor++; }
+    }
+  }
+  const qMensch = menschTor / menschSchuss;
+  const qKi = kiTor / kiSchuss;
+  console.log(`  Mensch über penalty.js .. ${pz(qMensch)} (${menschTor}/${menschSchuss})`);
+  console.log(`  KI über trefferChance ... ${pz(qKi)} (${kiTor}/${kiSchuss})`);
+  console.log(`  Abstand ................. ${nz(Math.abs(qMensch - qKi) * 100)} Prozentpunkte`);
+  korridor(qMensch, 0.72, 0.80, 'M1. Menschquote im Elfmeterkorridor 72–80 %');
+  korridor(qKi, 0.70, 0.80, 'M2. KI-Quote im selben Bereich');
+  ok(Math.abs(qMensch - qKi) <= 0.04, 'M3. Mensch und KI liegen höchstens 4 Punkte auseinander',
+    `${pz(qMensch)} gegen ${pz(qKi)}`);
 }
 
 /* --------------------------------------------- Elfmeterkiller wirkt spürbar */

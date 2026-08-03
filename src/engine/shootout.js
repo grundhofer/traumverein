@@ -23,6 +23,15 @@
  *   Nachgemessen mit tools/test-shootout.js (5000 Schießen). Wer schraubt,
  *   schraubt AUSSCHLIESSLICH in SHOOTOUT_CONSTANTS und lässt das Skript laufen.
  *
+ *   ZWEI MODELLE, EIN KORRIDOR. Hier laufen zwei Trefferquellen nebeneinander:
+ *   die KI würfelt über trefferChance() (Abschnitt 4), der Mensch schießt über
+ *   interactive/penalty.js und kommt durch ausMinispiel() wieder herein. Jede
+ *   Balanceänderung an einer der beiden Seiten kippt das Duell — deshalb prüft
+ *   tools/test-shootout.js seit dem Physik-Umbau (Umbauplan Paket 4, Punkt 10)
+ *   ausdrücklich BEIDE Quoten gegen denselben Korridor und deren Abstand gegen
+ *   ±4 Prozentpunkte. Gemessen nach dem Umbau: Mensch 74,7 %, KI 73,4 %,
+ *   Abstand 1,2 Punkte — die Konstanten unten mussten deshalb nicht wandern.
+ *
  * INTERAKTIV
  *   Ist setup.onKeyMoment gesetzt und der Schütze gehört zu
  *   setup.interactiveSide, wird ein KeyMoment kind:'elfmeter' nach

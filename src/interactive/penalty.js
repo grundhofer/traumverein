@@ -7,7 +7,10 @@
  *   1. ZIELEN      – Zielkreuz folgt der Maus (Pfeiltasten gehen auch) und zittert,
  *                    je nach Nervenstärke des Schützen. Klick/Leertaste rastet das Ziel ein.
  *   2. KRAFT       – Balken läuft hoch und runter, solange gedrückt gehalten wird.
- *                    Loslassen bestimmt die Härte. Zu viel Kraft = ungenau.
+ *                    Loslassen bestimmt die Härte, aber nur bis zur markierten
+ *                    Optimalzone: darüber wird der Ball nicht mehr schneller,
+ *                    der Klickfehler wiegt schwerer und der Torwart liest den
+ *                    Schuss besser. Zu viel Kraft ist also verschenkt.
  *   3. PRÄZISION   – Ein Läufer saust über einen Balken, das grüne Fenster ist der
  *                    Sweet Spot. Fenstergröße und Tempo hängen von Schuss/Technik/
  *                    Nervenstärke des Schützen und von difficulty.minigame ab.
@@ -19,15 +22,33 @@
  *   v = Entfernung zur Torlinie (0 = Torlinie, 11 = Elfmeterpunkt)
  *   h = Höhe über dem Rasen
  * Dadurch stimmen Torgröße, Ballgröße und Torwartreichweite automatisch zusammen.
+ * Die Projektionsmathematik ist unverändert; nur die KAMERAWAHL wurde von
+ * Weitwinkel auf Fernsehoptik gestellt (CAM_BACK 13 → 18 m, CAM_FOCAL 1750 →
+ * 2400, dazu HORIZON_Y und die Zielspannen).
+ *
+ * Physik: Ballbahn, Bodenkontakt und Torwartreichweite kommen aus
+ * core/ballistik.js. Es gibt keine feste Flugzeit mehr — wie lange der Ball
+ * unterwegs ist, entscheidet der Kraftbalken (0,35–0,50 s), und der Torwart
+ * springt zu einem ABSOLUTEN Zeitpunkt ab (nicht bei einem Anteil des Flugs).
+ * Daraus folgt: harte Schüsse sind schwer zu halten, weil dem Torwart die Zeit
+ * fehlt — und nicht, weil eine Konstante das behauptet.
  *
  * Reine Zeichen-/Eingabeschicht: kein Math.random (immer host.rng), kein Date.now
  * (performance.now nur für die Animation, das ist laut Projektregeln erlaubt).
+ *
+ * Zusätzlich zum Vertragsobjekt `minigame` exportiert die Datei den additiven,
+ * DOM-freien Prüfexport `modell` (Vertrag §9). Gemessen wird er von
+ * tools/test-elfmeter.js; die Balancekorridore stehen dort im Dateikopf.
  */
 
 import { clamp, lerp } from '../core/util.js';
 import { createRng } from '../core/rng.js';
 import { DEFAULT_COLORS, TRAITS } from '../core/constants.js';
 import { getClub } from '../data/clubs.js';
+import {
+  BALL_R, createFlug, loeseAbschuss, abschussVektor,
+  twParameter, twReichweite, TW_T_ABSTOSS
+} from '../core/ballistik.js';
 
 /* ══════════════════════════════════════════════════════════════════════════
    BALANCING – alles Wichtige steht hier oben.
@@ -37,19 +58,22 @@ import { getClub } from '../data/clubs.js';
 const CANVAS_W = 960, CANVAS_H = 600;
 
 /* --- Geometrie (Meter) --- */
-const GOAL_HALF_W = 3.66;      // halbe Torbreite
-const GOAL_H = 2.44;           // Lattenhöhe
+const GOAL_HALF_W = 3.66;      // halbe Torbreite (Innenkante Pfosten)
+const GOAL_H = 2.44;           // Lattenhöhe (Unterkante)
 const POST_R = 0.06;           // Pfostenradius (Trefferzone für „Pfosten"/„Latte")
-const BALL_R = 0.11;
 const SPOT_V = 11.0;           // Elfmeterpunkt
-const AIM_U_MAX = 5.2;         // so weit darf man daneben zielen
-const AIM_H_MIN = -0.10, AIM_H_MAX = 3.40;
+const AIM_U_MAX = 4.60;        // so weit darf man daneben zielen
+const AIM_H_MIN = -0.10, AIM_H_MAX = 3.05;
 
-/* --- Kamera --- */
-const CAM_BACK = 13.0;         // Kamera steht so viele Meter hinter dem Ball
+/* --- Kamera ---
+ * Fernsehoptik statt Weitwinkel: die Kamera steht weiter hinten und hat eine
+ * längere Brennweite. Die Projektion selbst (Lochkamera) bleibt unverändert —
+ * sie war schon richtig; verändert wird nur die Kamerawahl. Weil das Tor damit
+ * größer ins Bild wächst, wandern HORIZON_Y und die Zielspannen mit. */
+const CAM_BACK = 18.0;         // Kamera steht so viele Meter hinter dem Ball
 const CAM_H = 1.95;            // Kamerahöhe
-const CAM_FOCAL = 1750;        // Brennweite in Pixeln
-const HORIZON_Y = 205;         // Bildschirm-Y der Blickachse (= Horizont bei h = CAM_H)
+const CAM_FOCAL = 2400;        // Brennweite in Pixeln
+const HORIZON_Y = 232;         // Bildschirm-Y der Blickachse (= Horizont bei h = CAM_H)
 
 /* --- Zeiten (ms) --- */
 const INTRO_MS = 850;
@@ -59,17 +83,92 @@ const POWER_LIMIT_MS = 2600;   // wer ewig hält, verliert die Kontrolle
 const PREC_PERIOD_MS = 980;
 const PREC_LIMIT_MS = 2600;
 const RUNUP_MS = 430;          // Anlauf vor dem Schuss
-const FLIGHT_MS = 780;         // Ballflug
+const FLIGHT_MS = 780;         // Rückfallwert, falls der Integrator keine Bahn liefert
 const AFTER_MS = 620;          // Nachspiel (Netz zappelt, Torwart liegt)
 const RESULT_MS = 1500;        // Ergebnisbanner
 const HARD_TIMEOUT_MS = 20000; // Vertrag §9: niemals hängen bleiben
 
+/* --- Ballflug (Physik) ---
+ * Die Flugzeit kommt aus dem Integrator (core/ballistik.js), nicht mehr aus
+ * einer Konstanten. Bei 11 m ergibt das je nach Kraft 0,35–0,60 s. */
+const SHOT_V_MIN = 22.0;       // m/s bei Kraftbalken 0
+const SHOT_V_MAX = 32.0;       // m/s bei Kraftbalken 1
+const SHOT_V_SKILL_LO = 0.92;  // Schussattribut 0 …
+const SHOT_V_SKILL_HI = 1.06;  // … bis 100
+const SLOWMO = 1.20;           // Anzeige läuft etwas gedehnter als die Physik
+const FLUG_T_MAX = 1.6;        // s, so lange wird die Bahn integriert
+const SPIN_UPS_MIN = 2.5, SPIN_UPS_MAX = 6.5;   // Umdrehungen je Sekunde
+
+/* --- Netz --- */
+const NET_DEPTH_PER_V = 0.045; // Eindringtiefe je m/s Auftreffgeschwindigkeit
+const NET_DEPTH_MIN = 0.35, NET_DEPTH_MAX = 1.55;
+const NET_TAU = 0.09;          // s, Zeitkonstante des Abbremsens im Netz
+const NET_FADE_S = 0.12;       // s, in denen die Beule voll sichtbar wird
+
 /* --- Kraftbalken --- */
 const POWER_IDEAL = 0.78;      // beste Härte
 const POWER_TOL = 0.42;        // ab dieser Abweichung ist das Kraft-Timing wertlos
-const OVERPOWER_FROM = 0.86;   // ab hier wird der Schuss spürbar unpräziser
-const OVERPOWER_ERR = 2.6;     // Multiplikator für Streuung bei Übermaß
-const POWER_SAVE_RELIEF = 0.45; // harte Schüsse sind schwerer festzuhalten
+/* Neutarierung zur kürzeren Flugzeit: harte Schüsse sind durch die Physik von
+ * selbst stark geworden. Damit der Präzisionsbalken die Könnens-Achse bleibt,
+ * setzt der Kraftbalken ab OVERPOWER_FROM dagegen — und der Torwart verliert
+ * durch pure Wucht kaum noch etwas (0,45 → 0,15).
+ *
+ * Drei Lehren aus dem Gitterlauf des Prüfstands (Schützen- × Ziel- × Torwart-
+ * profile, tools/test-elfmeter.js), die hier festgeschrieben sind:
+ *   a) Ein Malus, der nur den Klickfehler verstärkt, ist keiner. Wer den
+ *      Präzisionsläufer sauber trifft — bei einem guten Schützen der Regelfall
+ *      —, bliebe straffrei, und Vollkraft wäre die dominante Strategie.
+ *   b) Ein systematisch HÖHERER Ball ist kein Malus. Gegen einen tief
+ *      hechtenden Torwart ist er ein Vorteil; der frühere Höhenschub von
+ *      +0,90 m hat Vollkraft in der Mitte sogar belohnt. Er ist ersatzlos weg.
+ *   c) Auch reine Streuung ist kein Malus, sondern stellenweise ein Bonus. Wo
+ *      der Torwart genau auf dem Zielpunkt steht (flacher Ball in die Mitte,
+ *      Weltklasse-Reflexe), ist JEDE Abweichung eine Verbesserung — Streuung
+ *      rettet dort den schlechten Zielpunkt, statt ihn zu bestrafen. Mit
+ *      OVERPOWER_ERR = 3,4 hat genau diese Zone zwei Gitterzellen gekippt:
+ *      gegen einen Weltklasse-Torwart war Vollkraft bei flachem Ball in die
+ *      Mitte um 1,4 bzw. 0,2 Punkte BESSER. Der Klickfehler-Multiplikator steht
+ *      deshalb nur noch bei 1,2, das Gewicht ist auf OVERPOWER_LESEN gewandert
+ *      (0,35 → 0,50) — das hängt sehr viel weniger am Zielpunkt. „Kann daher
+ *      nirgends zum Bonus werden" stand hier früher und ist zu stark: bei
+ *      identischer Ballbahn (precMiss = 0) senkt das bessere Lesen die
+ *      Haltewahrscheinlichkeit in bis zu 6,6 % der Schüsse, weil der Torwart
+ *      mit `high` auch die Sprunghöhe korrigiert und sich auf der falschen
+ *      Seite dadurch weiter vom Ball wegstreckt. In der Summe bleibt es ein
+ *      klarer Malus (in der Zelle „Mitte flach / TW Weltklasse" Σ steigend 78,0
+ *      gegen Σ fallend 17,8), aber eben nicht ausnahmslos.
+ *
+ * WORÜBER GEMESSEN WURDE (tools/test-elfmeter.js, Prüfungen 6a–6i): ein Gitter
+ * aus 135 Zellen (3 Schützen × 3 Torhüter × 15 Zielzonen), 500 Schuss je Zelle
+ * UND Kraftstufe, GEPAART — beide Kraftstufen sehen denselben Seed, also
+ * denselben Zielwurf, dasselbe Zittern, denselben Klickfehler. Bewertet wird je
+ * Zelle gegen den eigenen McNemar-Standardfehler (√(nurIdeal + nurVoll) / n,
+ * Rauschband 2 σ, Prüfung 6a); dazu ein Teilgitter aus 45 Zellen à 400 Schuss
+ * mit precMiss = 0 (6g/6h) und eine Nachmessung der engsten Zelle über
+ * 3 Saatfamilien à 6000 Schuss je Kraftstufe (6f).
+ *
+ * Zwei Zusagen, die hier früher zu absolut standen, auf die Messung gezogen:
+ *   • Der Gitterabstand beträgt NICHT 10,4 Punkte, sondern 8,6–8,8 (vier
+ *     Saatfamilien: 8,60 / 8,64 / 8,69 / 8,82 Punkte; bei 3000 statt 500 Schuss
+ *     je Zelle 8,68). Prüfung 6i meldet das bei jedem Lauf als offenes Ziel
+ *     (zuletzt 8,756 Punkte). Woher die 10,4 stammten, ist nicht dokumentiert,
+ *     und der Schnitt hängt vollständig am Zonenraster. Dass Vollkraft deutlich
+ *     kostet, trägt davon unabhängig und wird unter 6e hart geprüft.
+ *   • „Hält in allen 135 Zellen" ist keine Absolutaussage. Die engste Zelle ist
+ *     „Mitte flach / Torwart Weltklasse" (schwacher Schütze) mit rund 0,5
+ *     Punkten Marge: 3 Saatfamilien à 6000 Schuss ergeben Δ = -0,57 Punkte,
+ *     eine Referenzmessung außerhalb der Suite über 12 Saatfamilien à 20 000
+ *     Schuss Δ = -0,48 Punkte (Einzelwerte -1,00 bis -0,19). Das Vorzeichen
+ *     hält, aber eine kleine Balanceänderung kann diese Zelle kippen — der
+ *     Gitterlauf druckt Name und Größe des größten Δ deshalb bei jedem Lauf mit.
+ * Das Übermaß kostet also dreifach, und ganz überwiegend zielpunktunabhängig:
+ * es bringt kein Tempo mehr (siehe wirkKraft), es telegrafiert den Schuss
+ * (OVERPOWER_LESEN), und es verstärkt einen schon vorhandenen Klickfehler —
+ * maßvoll (OVERPOWER_ERR). */
+const OVERPOWER_FROM = 0.80;   // ab hier kostet das Übermaß
+const OVERPOWER_ERR = 1.2;     // Multiplikator auf den Klickfehler bei Übermaß
+const OVERPOWER_LESEN = 0.50;  // so viel besser liest der Torwart einen Vollkraftschuss
+const POWER_SAVE_RELIEF = 0.15; // harte Schüsse sind etwas schwerer festzuhalten
 
 /* --- Präzisionsbalken --- */
 const PREC_WIN_MIN = 0.055;    // halbe Fensterbreite (0..0.5) bei miesem Schützen
@@ -77,26 +176,43 @@ const PREC_WIN_MAX = 0.230;    // … bei Weltklasse-Schützen
 const PREC_MISS_M = 2.60;      // maximale seitliche Streuung in Metern (vor Können/Kraft)
 const PREC_MISS_H = 1.30;      // maximale Höhenstreuung in Metern
 const PREC_MISS_H_F = 0.50;    // Anteil der Höhenstreuung am Fehlklick
-const JITTER_M = 0.14;         // Grundrauschen, damit nie zwei Elfmeter gleich sind
+const JITTER_M = 0.24;         // Grundrauschen, damit nie zwei Elfmeter gleich sind
 
 /* --- Zittern beim Zielen --- */
 const WOBBLE_M = 0.62;         // Grundamplitude in Metern (bei Nervenstärke 0)
 const WOBBLE_MIN = 0.06;
 
-/* --- Torwart --- */
+/* --- Torwart ---
+ * Der Absprung liegt jetzt in ABSOLUTEN Millisekunden zum Ballkontakt: wer
+ * wartet und wirklich reagiert, springt danach ab; wer rät, ist vorher in der
+ * Luft. Die Reichweite ist nach dem Absprung linear in der Zeit (ballistisch —
+ * in der Luft beschleunigt niemand seitlich) und kommt aus
+ * ballistik.twReichweite(). */
 const KEEPER_LATE_REFLEX = 85;  // ab hier: echte Reaktion statt Raten (Aufgabenstellung)
+const KEEPER_REACT_MS = 220;    // echte Reaktion: so spät geht er runter
+const KEEPER_GUESS_LEAD_MS = 180; // wer rät, ist so früh unterwegs
+const KEEPER_REACT_REFLEX_LO = 1.10;  // Faktor auf KEEPER_REACT_MS bei Reflexe 0
+const KEEPER_REACT_REFLEX_HI = 0.78;  // … bei Reflexe 99
 const KEEPER_DIVE_U = 2.05;     // seitliche Ecke, in die der Torwart hechtet
 const KEEPER_DIVE_H_LOW = 0.42;
 const KEEPER_DIVE_H_HIGH = 1.68;
 const KEEPER_STAY_H = 0.85;     // stehen bleiben: Mitte
-const KEEPER_REACH_U_BASE = 1.28;  // Reichweite (Meter) bei Reflexe 50
-const KEEPER_REACH_U_PER_100 = 1.05;
-const KEEPER_REACH_H_BASE = 0.86;
-const KEEPER_REACH_H_PER_100 = 0.70;
-const KEEPER_LATE_REACH_MALUS = 0.87;  // später Absprung = weniger Weg
+const KEEPER_VERT_SCALE = 0.95; // hoch/tief kostet etwas weniger als seitlich
+const KEEPER_WIRK = 1.48;       // Wirkradius um die Hand in Armlängen (Arm + Körper + Handschuh)
+const KEEPER_DIFF_BASIS = 0.86; // Reichweitenfaktor: 1,0 bei difficulty.minigame = 1
+const KEEPER_DIFF_SPANNE = 0.14;
 const KEEPER_LATE_HIT_BASE = 0.52;     // Trefferquote der echten Reaktion
 const KEEPER_GUESS_STAY = 0.07;        // wie oft er einfach stehen bleibt
+const KEEPER_FEEL_U = 0.30;            // „aus dem Gefühl": richtige Ecke geahnt
+const KEEPER_FEEL_H = 0.55;            // … richtige Höhe geahnt
+const KEEPER_SAVE_BASIS = 0.75;        // Halteneigung bei Können 0 …
+const KEEPER_SAVE_SKILL = 0.40;        // … Zuschlag bei Können 1
 const KEEPER_SAVE_CEIL = 0.96;
+const KEEPER_NACHSCHWUNG_S = 0.20;     // so lange hechtet er nach dem Balldurchgang weiter
+
+/* --- Rahmentreffer --- */
+const FRAME_IN_POST = 0.22;     // Innenpfosten → doch noch drin
+const FRAME_IN_BAR = 0.12;      // Latte von unten → doch noch drin
 
 /* --- Bewertung --- */
 const Q_W_PLACEMENT = 0.28, Q_W_POWER = 0.28, Q_W_PRECISION = 0.44;
@@ -133,7 +249,6 @@ const HOST_PLAYER_SCALE_UNIT = 96; // Annahme: scale 1 ≈ 96 px Körperhöhe
 
 const TAU = Math.PI * 2;
 const clamp01 = (v) => clamp(v, 0, 1);
-const easeOut = (t) => 1 - (1 - t) * (1 - t);
 const easeIn = (t) => t * t;
 
 /** Attributzugriff mit Rückfallwert – Minispiele dürfen nie an fehlenden Daten sterben. */
@@ -298,18 +413,20 @@ function drawGoal(ctx, cam, netHit) {
     ctx.stroke();
   }
 
-  // Netzbeule nach dem Einschlag
+  // Netzbeule nach dem Einschlag – Radius und Alpha wachsen mit der Wucht
   if (netHit && netHit.a > 0) {
     const p = cam.project(clamp(netHit.u, -GOAL_HALF_W + 0.2, GOAL_HALF_W - 0.2), backV + 0.3, clamp(netHit.h, 0.15, GOAL_H - 0.15));
+    const wf = 0.55 + 0.75 * clamp01((netHit.wucht || 0.8) / NET_DEPTH_MAX);
+    const a = clamp01(netHit.a);
     ctx.save();
-    ctx.globalAlpha = clamp01(netHit.a);
+    ctx.globalAlpha = a;
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.beginPath(); ctx.ellipse(p.x, p.y, 34 * netHit.a, 24 * netHit.a, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, 34 * wf * a, 24 * wf * a, 0, 0, TAU); ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     ctx.lineWidth = 2;
     for (let r = 1; r <= 3; r++) {
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y, 12 * r * netHit.a, 8 * r * netHit.a, 0, 0, TAU);
+      ctx.ellipse(p.x, p.y, 12 * r * wf * a, 8 * r * wf * a, 0, 0, TAU);
       ctx.stroke();
     }
     ctx.restore();
@@ -695,12 +812,19 @@ function keeperSkill(keeper) {
 /**
  * Torwart-Entscheidung.
  * Schwache Torhüter raten früh (gewichtet nach Schützenfuß), starke warten und
- * reagieren wirklich – dafür verlieren sie etwas Reichweite.
+ * reagieren wirklich – dafür sind sie später in der Luft.
+ *
+ * `over` ist das Kraft-Übermaß 0..1 (siehe OVERPOWER_*). Wer voll durchzieht,
+ * telegrafiert den Schuss über Anlauftempo und Standbein: der Torwart trifft
+ * die Ecke häufiger. Das ist der Teil des Vollkraft-Malus, der NICHT am
+ * Zielpunkt hängt — und damit der einzige, der auch dann noch beißt, wenn der
+ * Torwart ohnehin genau auf dem Zielpunkt steht.
  */
-function keeperDecision(rng, keeper, actor, diff, trueSide, trueHigh) {
+function keeperDecision(rng, keeper, actor, diff, trueSide, trueHigh, over) {
   const reflex = att(keeper, 'reflexe');
   const late = reflex > KEEPER_LATE_REFLEX;
   const skill = keeperSkill(keeper);
+  const gelesen = clamp01(over || 0) * OVERPOWER_LESEN;
 
   // Priors: Rechtsfüßer legen den Ball am liebsten mit dem Innenrist in die
   // Ecke links von sich – das ist die rechte Hand des Torwarts (u < 0).
@@ -714,33 +838,187 @@ function keeperDecision(rng, keeper, actor, diff, trueSide, trueHigh) {
 
   let side = rng.pickWeighted(sides, (s) => s.w).side;
   let high = rng.chance(0.30 + skill * 0.12);
-  let reachFactor = 1;
 
   if (late) {
     // Echte Reaktion: Trefferquote steigt mit Reflexen und Schwierigkeitsgrad.
-    const hit = clamp((KEEPER_LATE_HIT_BASE + (reflex - KEEPER_LATE_REFLEX) / 110) * (0.75 + 0.35 * diff), 0.2, 0.94);
+    const hit = clamp((KEEPER_LATE_HIT_BASE + (reflex - KEEPER_LATE_REFLEX) / 110) * (0.75 + 0.35 * diff) + gelesen, 0.2, 0.94);
     if (rng.chance(hit)) { side = trueSide; high = trueHigh; }
-    reachFactor = KEEPER_LATE_REACH_MALUS;
-  } else if (rng.chance(clamp(0.16 * diff * skill, 0, 0.4))) {
-    // Auch mäßige Torhüter erwischen manchmal die richtige Ecke „aus dem Gefühl".
-    side = trueSide;
+  } else {
+    // Auch wer rät, liest den Schützen mit: Standbein, Blick, Anlaufwinkel.
+    if (rng.chance(clamp(KEEPER_FEEL_U * diff * skill + gelesen, 0, 0.45 + gelesen))) side = trueSide;
+    if (rng.chance(clamp(KEEPER_FEEL_H * skill + gelesen, 0, 0.60 + gelesen))) high = trueHigh;
   }
 
+  return { side, high, late, skill };
+}
+
+/**
+ * Torwartkennwerte inklusive Absprungzeitpunkt.
+ *
+ * `absprung` ist der Zeitpunkt des Absprungs RELATIV ZUM BALLKONTAKT in
+ * Sekunden: positiv = danach (echte Reaktion), negativ = davor (geraten).
+ * `tReakt` schiebt zusätzlich die Abstoßdauer TW_T_ABSTOSS dazu — erst danach
+ * ist der Torwart wirklich unterwegs. Genau dieses Feld liest
+ * ballistik.twReichweite().
+ */
+function twPlanParameter(keeper, late) {
+  const groesse = (keeper && keeper.appearance && keeper.appearance.height)
+    ? keeper.appearance.height / 100 : 1.88;
+  const roh = twParameter({
+    reflexe: att(keeper, 'reflexe', 45),
+    antizipation: att(keeper, 'stellungsspiel', 45),
+    sprungkraft: att(keeper, 'sprungkraft', 45),
+    groesse
+  });
+  const reflex = clamp01(att(keeper, 'reflexe', 45) / 99);
+  const absprung = late
+    ? (KEEPER_REACT_MS / 1000) * lerp(KEEPER_REACT_REFLEX_LO, KEEPER_REACT_REFLEX_HI, reflex)
+    : -KEEPER_GUESS_LEAD_MS / 1000;
   return {
-    side, high, late, reachFactor,
-    diveStart: late ? 0.34 : 0.06,      // Anteil des Ballflugs, ab dem er hechtet
-    skill
+    absprung,
+    tReakt: absprung + TW_T_ABSTOSS,
+    vHecht: roh.vHecht,
+    arm: roh.arm
   };
 }
 
 /**
- * Auflösung: Wohin geht der Ball, hält der Torwart?
- * Liefert { outcome, quality, xgDelta, aimU, aimH, keeperPlan, save }
+ * Wie weit die Hand des Torwarts in tFlug Sekunden vom Stand aus kommt.
+ * Prüfschnittstelle (modell) und Anzeige benutzen dieselbe Funktion — Bild und
+ * Modell dürfen nicht auseinanderdriften.
  */
-function resolveShot(rng, moment, host, input) {
-  const actor = moment.actor || {};
-  const keeper = moment.keeper || null;
-  const diff = (host.difficulty && typeof host.difficulty.minigame === 'number') ? host.difficulty.minigame : 1;
+function twReichweiteBei(tFlug, hoehe, keeper, late) {
+  const l = (late === undefined) ? att(keeper, 'reflexe', 45) > KEEPER_LATE_REFLEX : !!late;
+  return twReichweite(twPlanParameter(keeper, l), tFlug, hoehe);
+}
+
+/** Zielpunkt des Hechts (Ecke), in der gestauchten Höhenmetrik. */
+function hechtRichtung(plan) {
+  const zu = plan.side === 0 ? KEEPER_STAY_H : (plan.high ? KEEPER_DIVE_H_HIGH : KEEPER_DIVE_H_LOW);
+  const du = plan.side * KEEPER_DIVE_U;
+  const dh = (zu - KEEPER_STAY_H) * KEEPER_VERT_SCALE;
+  const len = Math.hypot(du, dh);
+  return { du, dh, len, eu: len > 1e-6 ? du / len : 0, eh: len > 1e-6 ? dh / len : 0 };
+}
+
+/** Wo die Hand nach `weg` Metern Hechtstrecke steht (Weltmeter). */
+function handPunkt(plan, weg) {
+  const r = hechtRichtung(plan);
+  return {
+    u: r.eu * weg,
+    h: KEEPER_STAY_H + (r.eh * weg) / KEEPER_VERT_SCALE
+  };
+}
+
+/**
+ * Parade-Prüfung — reine Funktion, DOM-frei, rng nur als Parameter.
+ *
+ * schuss = { aimU, aimH, power, tFlug, actor?, diff? }
+ * Rückgabe: { gehalten, p, d, handU, handH, weite, plan }
+ *
+ * Der Torwart springt zu einem festen Zeitpunkt ab und fliegt danach LINEAR
+ * (ballistisch). Seine Hand liegt also nach tFlug Sekunden an genau einem Ort;
+ * gehalten wird, was innerhalb einer Armlänge davon einschlägt.
+ */
+function parade(schuss, keeper, rng) {
+  const diff = typeof schuss.diff === 'number' ? schuss.diff : 1;
+  const aimU = schuss.aimU, aimH = schuss.aimH;
+  const trueSide = aimU < -0.55 ? -1 : aimU > 0.55 ? 1 : 0;
+  const trueHigh = aimH > 1.15;
+  const power = typeof schuss.power === 'number' ? schuss.power : POWER_IDEAL;
+  const over = Math.max(0, power - OVERPOWER_FROM) / (1 - OVERPOWER_FROM);
+  const plan = keeperDecision(rng, keeper, schuss.actor || null, diff, trueSide, trueHigh, over);
+  const par = twPlanParameter(keeper, plan.late);
+
+  const weite = twReichweite(par, schuss.tFlug, aimH) * (KEEPER_DIFF_BASIS + KEEPER_DIFF_SPANNE * diff);
+  const weg = Math.max(0, weite - par.arm);
+  const hand = handPunkt(plan, weg);
+  const abstand = Math.hypot(aimU - hand.u, (aimH - hand.h) * KEEPER_VERT_SCALE);
+  const d = abstand / Math.max(0.25, par.arm * KEEPER_WIRK);
+
+  // Auch der Halte-Malus hängt an der WIRKSAMEN Wucht — Übermaß macht den Ball
+  // nicht härter, also darf es dem Torwart auch nicht das Festhalten erschweren.
+  const powerRelief = lerp(1, 1 - POWER_SAVE_RELIEF, wirkKraft(power));
+  const p = clamp((1 - d) * powerRelief * (KEEPER_SAVE_BASIS + KEEPER_SAVE_SKILL * plan.skill), 0, KEEPER_SAVE_CEIL);
+  const gehalten = d < 1 && rng.chance(p);
+
+  return { gehalten, p, d, handU: hand.u, handH: hand.h, weite, weg, plan, twpar: par };
+}
+
+/* ---------------------------------------------------------------------- *
+ *  Ballflug
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Wucht, die wirklich in den Ball geht.
+ *
+ * Über dem Optimum wird der Ball nicht mehr härter: die zusätzliche Kraft geht
+ * in den schlechten Kontakt, nicht ins Tempo. Ohne diese Deckelung wäre
+ * Vollkraft allein durch die kürzere Flugzeit die bessere Wahl — der Torwart
+ * hat schlicht weniger Zeit —, und zwar in JEDER Torecke und gegen jeden
+ * Torwart. Der Kraftbalken hätte dann ein Optimum, das keines ist. Genau das
+ * misst der Prüfstand über sein Gitter. Die Optimalzone ist im Balken markiert,
+ * der Spieler wird also nicht getäuscht.
+ */
+function wirkKraft(power) {
+  return Math.min(clamp01(power), POWER_IDEAL);
+}
+
+/** Abschussgeschwindigkeit in m/s aus Kraftbalken und Schussattribut. */
+function schussTempo(power, schuss) {
+  return lerp(SHOT_V_MIN, SHOT_V_MAX, wirkKraft(power))
+    * lerp(SHOT_V_SKILL_LO, SHOT_V_SKILL_HI, clamp01((schuss === undefined ? 50 : schuss) / 100));
+}
+
+/**
+ * Echte Bahn vom Elfmeterpunkt zum Zielpunkt (u = seitlich, v = Tiefe zur
+ * Torlinie, h = Höhe). Der Aufrufer besitzt den Flug und gibt ihn frei.
+ */
+function baueFlug(aimU, aimH, tempo) {
+  const von = { x: 0, y: SPOT_V, z: BALL_R };
+  const nach = { x: aimU, y: 0, z: Math.max(BALL_R, aimH) };
+  const l = loeseAbschuss(von, nach, tempo, { tMax: FLUG_T_MAX });
+  let v;
+  if (l) {
+    v = abschussVektor(tempo, l.gier, l.neigung, { x: 0, y: 0, z: 0 });
+  } else {
+    // Notlösung ohne Luft, damit nie eine Szene ohne Ball dasteht.
+    const dx = nach.x - von.x, dy = nach.y - von.y, dz = nach.z - von.z;
+    const D = Math.hypot(dx, dy);
+    const t = D / Math.max(1, tempo);
+    v = { x: dx / t, y: dy / t, z: dz / t + 0.5 * 9.81 * t };
+  }
+  const flug = createFlug({ p: von, v, boden: BALL_R, tMax: FLUG_T_MAX });
+  const tr = flug.trefferEbene('y', 0);
+  const tFlug = tr ? tr.t : SPOT_V / Math.max(1, tempo);
+  return {
+    flug, tFlug,
+    trefferU: tr ? tr.x : aimU,
+    trefferH: tr ? tr.z : aimH,
+    vx: tr ? tr.vx : 0, vy: tr ? tr.vy : -tempo, vz: tr ? tr.vz : 0,
+    vEnd: tr ? Math.hypot(tr.vx, tr.vy, tr.vz) : tempo
+  };
+}
+
+/** Flugzeit in Sekunden für Kraftbalken und Schussattribut (Prüfschnittstelle). */
+function flugzeit(power, schuss, aimU, aimH) {
+  const b = baueFlug(aimU === undefined ? 0 : aimU, aimH === undefined ? 0.6 : aimH,
+    schussTempo(power, schuss));
+  const t = b.tFlug;
+  b.flug.freigeben();
+  return t;
+}
+
+/**
+ * Auflösung: Wohin geht der Ball, hält der Torwart?
+ *
+ * kontext = { actor, keeper, diff }, input = { aimU, aimH, power, precMiss, precDir }
+ * Der zurückgegebene `flug` gehört dem Aufrufer (freigeben() nicht vergessen).
+ */
+function resolveShot(rng, kontext, input) {
+  const actor = kontext.actor || {};
+  const keeper = kontext.keeper || null;
+  const diff = (typeof kontext.diff === 'number') ? kontext.diff : 1;
   const skill = shooterSkill(actor);
 
   // ---- Streuung aus Präzisions-Timing, Kraft und Können -------------------
@@ -752,43 +1030,52 @@ function resolveShot(rng, moment, host, input) {
 
   let aimU = input.aimU + dirSign * missNorm * PREC_MISS_M * skillErr * powerErr
     + rng.gauss(0, JITTER_M) * skillErr;
-  let aimH = input.aimH + (missNorm * PREC_MISS_H * PREC_MISS_H_F + over * 0.90) * skillErr
+  let aimH = input.aimH + missNorm * PREC_MISS_H * PREC_MISS_H_F * skillErr
     + rng.gauss(0, JITTER_M * 0.7) * skillErr;
 
   aimU = clamp(aimU, -6.5, 6.5);
   aimH = clamp(aimH, -0.4, 4.2);
 
-  // ---- Rahmen prüfen ------------------------------------------------------
-  const inH = aimH > BALL_R * 0.4 && aimH < GOAL_H - POST_R - BALL_R * 0.5;
-  const inU = Math.abs(aimU) < GOAL_HALF_W - POST_R - BALL_R * 0.5;
-  let frame = null;
-  if (Math.abs(Math.abs(aimU) - GOAL_HALF_W) <= POST_R + BALL_R && aimH < GOAL_H + POST_R) frame = 'pfosten';
-  else if (Math.abs(aimH - GOAL_H) <= POST_R + BALL_R && Math.abs(aimU) < GOAL_HALF_W + POST_R) frame = 'latte';
+  // ---- Echte Bahn ---------------------------------------------------------
+  const shotSpeed = schussTempo(input.power, att(actor, 'schuss'));
+  const bahn = baueFlug(aimU, aimH, shotSpeed);
+  const hU = bahn.trefferU, hH = bahn.trefferH;
+
+  // ---- Rahmen: Pfosten über den echten Zylinder, Latte über die Höhe ------
+  const rahmenR = POST_R + BALL_R;
+  const lattenMitte = GOAL_H + POST_R;
+  let frame = null, frameInnen = false;
+  const pfL = bahn.flug.trefferZylinder('z', -(GOAL_HALF_W + POST_R), 0, rahmenR, 0, lattenMitte + POST_R);
+  const pfR = pfL ? null : bahn.flug.trefferZylinder('z', GOAL_HALF_W + POST_R, 0, rahmenR, 0, lattenMitte + POST_R);
+  const pf = pfL || pfR;
+  if (pf) {
+    frame = 'pfosten';
+    frameInnen = Math.abs(hU) < GOAL_HALF_W;     // von innen dagegen = kann noch reinspringen
+  } else if (Math.abs(hH - lattenMitte) <= rahmenR && Math.abs(hU) < GOAL_HALF_W + POST_R) {
+    frame = 'latte';
+    frameInnen = hH < lattenMitte;               // von unten dagegen
+  }
+
+  const inH = hH > BALL_R * 0.4 && hH < GOAL_H - POST_R - BALL_R * 0.5;
+  const inU = Math.abs(hU) < GOAL_HALF_W - POST_R - BALL_R * 0.5;
 
   // ---- Torwart ------------------------------------------------------------
-  const trueSide = aimU < -0.55 ? -1 : aimU > 0.55 ? 1 : 0;
-  const trueHigh = aimH > 1.15;
-  const plan = keeperDecision(rng, keeper, actor, diff, trueSide, trueHigh);
+  const pd = parade({ aimU: hU, aimH: hH, power: input.power, tFlug: bahn.tFlug, actor, diff }, keeper, rng);
+  const plan = pd.plan;
+  const d = pd.d;
+  const saved = pd.gehalten;
 
-  const reflex = att(keeper, 'reflexe', 45);
-  const jump = att(keeper, 'sprungkraft', 45);
-  const reachU = (KEEPER_REACH_U_BASE + (reflex / 100) * KEEPER_REACH_U_PER_100)
-    * plan.reachFactor * (0.82 + 0.30 * diff);
-  const reachH = (KEEPER_REACH_H_BASE + (jump / 100) * KEEPER_REACH_H_PER_100)
-    * plan.reachFactor * (0.85 + 0.25 * diff);
-
-  const cU = plan.side * KEEPER_DIVE_U;
-  const cH = plan.side === 0 ? KEEPER_STAY_H : (plan.high ? KEEPER_DIVE_H_HIGH : KEEPER_DIVE_H_LOW);
-  const d = Math.hypot((aimU - cU) / reachU, (aimH - cH) / reachH);
-
-  // Harte Schüsse rutschen dem Torwart eher durch.
-  const powerRelief = lerp(1, 1 - POWER_SAVE_RELIEF, clamp01(input.power));
-  const pSave = clamp((1 - d) * powerRelief * (0.72 + 0.55 * plan.skill), 0, KEEPER_SAVE_CEIL);
-  const saved = d < 1 && rng.chance(pSave);
+  // Rahmentreffer von innen springen manchmal doch noch hinein.
+  const frameTor = frame
+    ? rng.chance(frameInnen ? (frame === 'pfosten' ? FRAME_IN_POST : FRAME_IN_BAR) : 0)
+    : false;
 
   let outcome;
-  if (frame && !(saved && d < 0.55)) outcome = frame;
-  else if (!inU || !inH) outcome = 'daneben';
+  if (frame) {
+    if (saved && d < 0.55) outcome = 'parade';
+    else if (frameTor) outcome = 'tor';
+    else outcome = frame;
+  } else if (!inU || !inH) outcome = 'daneben';
   else if (saved) outcome = 'parade';
   else outcome = 'tor';
 
@@ -812,8 +1099,61 @@ function resolveShot(rng, moment, host, input) {
     outcome,
     quality: Math.round(quality * 1000) / 1000,
     xgDelta: Math.round(clamp(xg, XG_MIN, XG_MAX) * 1000) / 1000,
-    aimU, aimH, plan, saved, pSave: Math.round(pSave * 100) / 100
+    aimU, aimH, plan, saved,
+    pSave: Math.round(pd.p * 100) / 100,
+    d, parade: pd,
+    flug: bahn.flug, tFlug: bahn.tFlug, shotSpeed,
+    trefferU: hU, trefferH: hH, vEnd: bahn.vEnd,
+    vx: bahn.vx, vy: bahn.vy, vz: bahn.vz
   };
+}
+
+/**
+ * Nachspiel-Bahn: was mit dem Ball nach dem Kontakt passiert.
+ *
+ * Parade:  Spiegelung des einlaufenden Vektors an der Handnormalen, Betrag aus
+ *          der Knappheit der Parade (Punkt 5 des Umbauplans).
+ * Rahmen:  Reflexion am Pfosten (x) bzw. an der Latte (z).
+ * Daneben: der Hauptflug läuft einfach weiter, es braucht keine zweite Bahn.
+ * Tor:     das Netz bremst; das rechnet netzTiefe() analytisch.
+ *
+ * Rückgabe: Flug oder null. Der Aufrufer besitzt ihn.
+ */
+function baueNachspiel(result) {
+  const o = result.outcome;
+  if (o === 'daneben' || o === 'tor') return null;
+  const px = result.trefferU, pz = Math.max(BALL_R, result.trefferH);
+  const py = 0.30;                       // Kontakt kurz vor der Linie
+  let vx = result.vx, vy = result.vy, vz = result.vz;
+
+  if (o === 'parade') {
+    let nx = px - result.parade.handU;
+    let ny = 0.85;
+    let nz = pz - result.parade.handH;
+    const nn = Math.hypot(nx, ny, nz);
+    if (nn < 1e-6) { nx = 0; ny = 1; nz = 0; } else { nx /= nn; ny /= nn; nz /= nn; }
+    const vd = vx * nx + vy * ny + vz * nz;
+    vx -= 2 * vd * nx; vy -= 2 * vd * ny; vz -= 2 * vd * nz;
+    const betrag = result.shotSpeed * lerp(0.15, 0.45, 1 - clamp01(result.d));
+    const s = Math.hypot(vx, vy, vz);
+    const f = s > 1e-6 ? betrag / s : 0;
+    vx *= f; vy *= f; vz *= f;
+    if (vy < 1.0) vy = 1.0;              // der Ball muss vom Tor weg
+  } else if (o === 'pfosten') {
+    vx = -vx * 0.62; vy = -vy * 0.55; vz *= 0.62;
+  } else {
+    vy = -vy * 0.55; vz = -Math.abs(vz) * 0.45 - 1.2; vx *= 0.62;
+  }
+  return createFlug({
+    p: { x: px, y: py, z: pz }, v: { x: vx, y: vy, z: vz },
+    boden: BALL_R, tMax: 1.2
+  });
+}
+
+/** Eindringtiefe ins Netz (Meter) nach `tau` Sekunden, Punkt 7 des Umbauplans. */
+function netzTiefe(vEnd, tau) {
+  const depth = clamp(vEnd * NET_DEPTH_PER_V, NET_DEPTH_MIN, NET_DEPTH_MAX);
+  return depth * (1 - Math.exp(-Math.max(0, tau) / NET_TAU));
 }
 
 const RESULT_TEXT = {
@@ -862,10 +1202,17 @@ export const minigame = {
       daneben: ['raunen', { lautstaerke: 0.9 }]
     };
 
-    // Deterministische Zuschauerwolke (einmalig, danach nur noch gezeichnet)
+    // Deterministische Zuschauerwolke (einmalig, danach nur noch gezeichnet).
+    // Die Vereinsfarben liefert – falls vorhanden – der Stadionkontext aus
+    // matchday.js; ohne ihn bleibt es beim Trikot des Schützen.
     const crowd = [];
     const kit = kitOf(actor);
-    const crowdColors = [kit.primary, kit.secondary, '#e8d9b0', '#8b5a2b', '#404a58', '#c9ced6'];
+    const farben = (moment.context && moment.context.farben) || null;
+    const crowdColors = [
+      (farben && farben.heim) || kit.primary,
+      (farben && farben.gast) || kit.secondary,
+      '#e8d9b0', '#8b5a2b', '#404a58', '#c9ced6'
+    ];
     for (let i = 0; i < 420; i++) {
       crowd.push({
         x: rng.int(0, W), y: cam.cy - rng.int(8, 152), s: rng.int(3, 5),
@@ -914,11 +1261,22 @@ export const minigame = {
       let power = 0, powerLocked = 0;
       let precMarker = 0.5, precMiss = 1, precDir = 1;
       let result = null;                    // Ergebnis von resolveShot
-      let netHit = { u: 0, h: 0, a: 0 };
-      let ballSpin = 0;
+      let nachspiel = null;                  // zweiter Flug (Abpraller/Aluminium)
+      let flightMs = FLIGHT_MS;              // aus der echten Flugzeit, s. setPhase('flug')
+      let netHit = { u: 0, h: 0, a: 0, ziel: 0, wucht: 0 };
+      let ballSpin = 0, ballOmega = 0;
+      const aufsetzer = [];                  // Bodenkontakte aus dem Integrator, für den Ton
+      let naechsterAufsetzer = 0;
+      let letzterFrame = 0;                  // für dt (performance.now, laut Dateikopf erlaubt)
+      const kontext = { actor, keeper, diff };
+      const ballWelt = { u: 0, v: SPOT_V, h: BALL_R };
       const prevCursor = canvas.style.cursor;
 
       /* ---- Aufräumen & Abschluss ------------------------------------------ */
+      function fluegeFreigeben() {
+        if (result && result.flug) { result.flug.freigeben(); result.flug = null; }
+        if (nachspiel) { nachspiel.freigeben(); nachspiel = null; }
+      }
       function detach() {
         canvas.removeEventListener('pointermove', onMove);
         canvas.removeEventListener('pointerdown', onDown);
@@ -933,14 +1291,20 @@ export const minigame = {
         finished = true;
         if (raf) cancelAnimationFrame(raf);
         detach();
+        fluegeFreigeben();
         resolve(res);
       }
       /** Notausgang: plausibles Ergebnis ohne weitere Animation (Vertrag §9). */
       function bailout() {
-        const r = result || resolveShot(rng, moment, host, {
-          aimU: rng.float(-2.6, 2.6), aimH: rng.float(0.3, 1.5),
-          power: 0.7, precMiss: 0.55, precDir: rng.chance(0.5) ? 1 : -1
-        });
+        let r = result;
+        if (!r) {
+          r = resolveShot(rng, kontext, {
+            aimU: rng.float(-2.6, 2.6), aimH: rng.float(0.3, 1.5),
+            power: 0.7, precMiss: 0.55, precDir: rng.chance(0.5) ? 1 : -1
+          });
+          if (r.flug) r.flug.freigeben();
+          r.flug = null;
+        }
         done({ outcome: r.outcome, quality: r.quality, targetPlayerId: null, xgDelta: r.xgDelta });
       }
 
@@ -1006,10 +1370,30 @@ export const minigame = {
         phase = p;
         phaseStart = performance.now();
         if (p === 'flug') {
-          result = resolveShot(rng, moment, host, {
+          result = resolveShot(rng, kontext, {
             aimU, aimH, power: powerLocked, precMiss, precDir
           });
-          netHit = { u: result.aimU, h: result.aimH, a: 0 };
+          // Eine Uhr für alles: die Anzeige dehnt die echte Flugzeit um SLOWMO.
+          flightMs = result.tFlug > 0 ? result.tFlug * 1000 * SLOWMO : FLIGHT_MS;
+          nachspiel = baueNachspiel(result);
+          netHit = {
+            u: result.trefferU, h: result.trefferH, a: 0,
+            ziel: clamp01(result.vEnd / 26),
+            wucht: clamp(result.vEnd * NET_DEPTH_PER_V, NET_DEPTH_MIN, NET_DEPTH_MAX)
+          };
+          ballOmega = TAU * lerp(SPIN_UPS_MIN, SPIN_UPS_MAX, clamp01(powerLocked));
+          // Bodenkontakte einsammeln: der Integrator kennt sie, der Ton soll
+          // sie hören. Zeiten sind Physikzeiten seit dem Kontakt.
+          aufsetzer.length = 0;
+          for (const a of result.flug.aufsetzer()) {
+            if (a.t <= result.tFlug) aufsetzer.push({ t: a.t, wucht: clamp01(Math.abs(a.vz) / 9) });
+          }
+          if (nachspiel) {
+            for (const a of nachspiel.aufsetzer()) {
+              aufsetzer.push({ t: result.tFlug + a.t, wucht: clamp01(Math.abs(a.vz) / 9) });
+            }
+          }
+          naechsterAufsetzer = 0;
           sound('schuss');
         }
       }
@@ -1029,14 +1413,45 @@ export const minigame = {
         setPhase('flug');
       }
 
-      /* ---- Ballbahn -------------------------------------------------------- */
-      function ballAt(t) {
-        const v = lerp(SPOT_V, 0, t);
-        const u = lerp(0, result.aimU, t);
-        // leichter Bogen, harte Schüsse fliegen flacher
-        const arc = 0.26 * (1 - clamp01(powerLocked)) + 0.08;
-        const h = lerp(0.11, result.aimH, t) + arc * Math.sin(Math.PI * t);
-        return { u, v, h };
+      /* ---- Ballbahn: kein Bogen mehr von Hand, alles aus dem Integrator ----- */
+      const _bs = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, v: 0 };
+      /**
+       * Ballort zur Physikzeit t (Sekunden seit dem Kontakt). Bis zur Torlinie
+       * liefert der Hauptflug; danach je nach Ausgang das Netz, der Abpraller
+       * oder – bei „daneben" – weiter der Hauptflug.
+       */
+      function ballBei(t) {
+        if (!result || !result.flug) {
+          ballWelt.u = 0; ballWelt.v = SPOT_V; ballWelt.h = BALL_R;
+          return ballWelt;
+        }
+        if (t <= result.tFlug || result.outcome === 'daneben') {
+          const s = result.flug.at(clamp(t, 0, result.flug.dauer), _bs);
+          ballWelt.u = s.x; ballWelt.v = s.y; ballWelt.h = Math.max(BALL_R, s.z);
+          return ballWelt;
+        }
+        const tau = t - result.tFlug;
+        if (result.outcome === 'tor') {
+          const fall = Math.max(0, tau - NET_TAU * 2.5);
+          ballWelt.u = result.trefferU;
+          ballWelt.v = -netzTiefe(result.vEnd, tau);
+          ballWelt.h = Math.max(BALL_R, result.trefferH - 0.5 * 9.81 * fall * fall);
+          return ballWelt;
+        }
+        if (nachspiel) {
+          const s = nachspiel.at(clamp(tau, 0, nachspiel.dauer), _bs);
+          ballWelt.u = s.x; ballWelt.v = s.y; ballWelt.h = Math.max(BALL_R, s.z);
+          return ballWelt;
+        }
+        ballWelt.u = result.trefferU; ballWelt.v = 0;
+        ballWelt.h = Math.max(BALL_R, result.trefferH);
+        return ballWelt;
+      }
+
+      /** Physikzeit seit dem Kontakt (negativ = Anlauf). */
+      function physZeit(pt) {
+        const ms = phase === 'ergebnis' ? flightMs + AFTER_MS + pt : pt - RUNUP_MS;
+        return ms / 1000 / SLOWMO;
       }
 
       /* ---- Hauptschleife --------------------------------------------------- */
@@ -1047,6 +1462,10 @@ export const minigame = {
 
         const tSec = (now - tStart) / 1000;
         const pt = now - phaseStart;
+        // Alles Zeitabhängige läuft über dt, nicht über „pro Bild" — sonst
+        // hängen Drall und Netzbeule an der Bildrate.
+        const dt = letzterFrame ? Math.min(0.05, (now - letzterFrame) / 1000) : 1 / 60;
+        letzterFrame = now;
 
         /* --- Zustandsfortschritt --- */
         let timer = null;
@@ -1066,7 +1485,7 @@ export const minigame = {
           timer = 1 - pt / PREC_LIMIT_MS;
           if (pt > PREC_LIMIT_MS) lockPrecision();
         } else if (phase === 'flug') {
-          if (pt > RUNUP_MS + FLIGHT_MS + AFTER_MS) {
+          if (pt > RUNUP_MS + flightMs + AFTER_MS) {
             setPhase('ergebnis');
             // Ein Elfmeter, der ins Nirgendwo geht, klang bisher nach
             // Aluminium. Jetzt bekommt jeder Ausgang seinen eigenen Ton.
@@ -1094,17 +1513,23 @@ export const minigame = {
         drawStands(ctx, cam, W, crowd, tSec);
         drawPitch(ctx, cam, W, H);
 
-        // Torwart-Position & Hechtfortschritt
+        // Torwart-Position & Hechtfortschritt — aus DERSELBEN Funktion wie das
+        // Modell (ballistik.twReichweite), nicht aus einem easeOut. Nach dem
+        // Balldurchgang hechtet er KEEPER_NACHSCHWUNG_S weiter, statt in der
+        // Luft einzufrieren.
+        const tPhys = physZeit(pt);
         let kSide = 0, kHigh = false, kDive = 0, kU = Math.sin(tSec * 2.2) * 0.28;
-        if (phase === 'flug' && result) {
-          const ft = clamp01((pt - RUNUP_MS) / FLIGHT_MS);
+        if (result && (phase === 'flug' || phase === 'ergebnis')) {
           const p = result.plan;
-          const d = clamp01((ft - p.diveStart) / Math.max(0.12, 1 - p.diveStart));
-          kSide = p.side; kHigh = p.high; kDive = easeOut(d);
-          kU = p.side * KEEPER_DIVE_U * kDive * 0.72;
-        } else if (phase === 'ergebnis' && result) {
-          const p = result.plan;
-          kSide = p.side; kHigh = p.high; kDive = 1; kU = p.side * KEEPER_DIVE_U * 0.72;
+          kSide = p.side; kHigh = p.high;
+          const richtung = hechtRichtung(p);
+          if (richtung.len > 1e-6) {
+            const tw = Math.max(0, Math.min(tPhys, result.tFlug + KEEPER_NACHSCHWUNG_S));
+            const weg = Math.min(richtung.len,
+              Math.max(0, twReichweite(result.parade.twpar, tw, result.aimH) - result.parade.twpar.arm));
+            kDive = clamp01(weg / richtung.len);
+            kU = handPunkt(p, weg).u;
+          }
         }
 
         drawGoal(ctx, cam, netHit);
@@ -1112,48 +1537,31 @@ export const minigame = {
 
         // Ball & Schütze
         if (phase === 'flug' || phase === 'ergebnis') {
-          // bt < 0: Anlauf, 0..1: Flug, > 1: Nachspiel (Netz, Abpraller, Torwart liegt)
-          const bt = phase === 'ergebnis'
-            ? 1 + AFTER_MS / FLIGHT_MS
-            : (pt - RUNUP_MS) / FLIGHT_MS;
           const runT = phase === 'ergebnis' ? 1 : clamp01(pt / RUNUP_MS);
           const su = lerp(-2.0, -0.62, easeIn(runT));
           const sv = lerp(SPOT_V + 3.1, SPOT_V + 0.75, easeIn(runT));
           drawShooter(ctx, host, actor, cam, su, sv,
-            runT < 1 ? 'lauf' : 'schuss', runT * 2.5, bt > 0.1 ? 0.45 : 1);
+            runT < 1 ? 'lauf' : 'schuss', runT * 2.5, tPhys > 0.04 ? 0.45 : 1);
 
-          if (bt <= 0) {
-            drawBall(ctx, cam, 0, SPOT_V, 0.11, 0);
-          } else if (bt <= 1) {
-            ballSpin += 0.55;
-            const b = ballAt(bt);
-            drawBall(ctx, cam, b.u, b.v, b.h, ballSpin);
+          if (tPhys <= 0) {
+            drawBall(ctx, cam, 0, SPOT_V, BALL_R, 0);
           } else {
-            // Nachspiel: je nach Ausgang eine eigene kleine Choreografie
-            const a = clamp01(bt - 1);
-            ballSpin += 0.18;
-            const o = result.outcome;
-            if (o === 'tor') {
-              netHit.a = Math.min(1, netHit.a + 0.12);
-              drawBall(ctx, cam, result.aimU * 0.9, lerp(0, -1.7, easeOut(a)),
-                Math.max(0.12, result.aimH * (1 - easeIn(a) * 0.85)), ballSpin);
-            } else if (o === 'parade') {
-              // Abpraller zur Seite, dorthin, wo der Torwart hingeflogen ist
-              const s = result.plan.side || (result.aimU >= 0 ? 1 : -1);
-              drawBall(ctx, cam, result.aimU + s * 4.2 * a, lerp(0, 5.5, a),
-                Math.max(0.15, result.aimH + 0.5 * a - 1.4 * a * a), ballSpin);
-            } else if (o === 'latte' || o === 'pfosten') {
-              drawBall(ctx, cam, result.aimU * (1 - a * 0.45), lerp(0, 6.5, a),
-                Math.max(0.15, result.aimH + 0.4 * a - 1.9 * a * a), ballSpin);
-            } else {
-              // Daneben: der Ball segelt hinter das Tor ins Nirwana
-              drawBall(ctx, cam, result.aimU * (1 + a * 0.25), lerp(0, -4.5, a),
-                Math.max(0.1, result.aimH + 0.3 * a - 0.9 * a * a), ballSpin);
+            ballSpin += ballOmega * dt;
+            const b = ballBei(tPhys);
+            drawBall(ctx, cam, b.u, b.v, Math.max(BALL_R, b.h), ballSpin);
+            if (result.outcome === 'tor' && tPhys > result.tFlug) {
+              netHit.a = Math.min(netHit.ziel, netHit.a + dt / NET_FADE_S);
+            }
+            // Bodenkontakte vertonen (die Klangbank kennt 'aufsetzer' erst mit
+            // Paket 10 – der sound()-Wrapper verschluckt unbekannte Namen).
+            while (naechsterAufsetzer < aufsetzer.length && tPhys >= aufsetzer[naechsterAufsetzer].t) {
+              sound('aufsetzer', { lautstaerke: 0.35 + 0.65 * aufsetzer[naechsterAufsetzer].wucht });
+              naechsterAufsetzer++;
             }
           }
         } else {
           drawShooter(ctx, host, actor, cam, -2.0, SPOT_V + 3.1, 'stand', 0, 1);
-          drawBall(ctx, cam, 0, SPOT_V, 0.11, 0);
+          drawBall(ctx, cam, 0, SPOT_V, BALL_R, 0);
         }
 
         /* --- Zielhilfe & Balken --- */
@@ -1194,6 +1602,38 @@ export const minigame = {
 
       raf = requestAnimationFrame(frame);
     });
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRÜFSCHNITTSTELLE (Vertrag §9, additiv)
+
+   Rein funktional, DOM-frei, rng ausschließlich als Parameter. Damit lässt
+   sich die Elfmeterbalance in Node messen (tools/test-elfmeter.js), ohne das
+   Minispiel zu starten. Weder Signatur noch Verhalten von `minigame` hängen
+   daran.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export const modell = {
+  /** Abschussgeschwindigkeit in m/s. */
+  schussTempo,
+  /** Flugzeit in Sekunden (power 0..1, schuss 0..100, optional Zielpunkt). */
+  flugzeit,
+  /** Vollständige Bahn; der Aufrufer besitzt sie und ruft flug.freigeben(). */
+  bahn: baueFlug,
+  /** Reichweite der Torwarthand nach tFlug Sekunden, in Metern. */
+  twReichweiteBei,
+  /** Parade-Entscheidung; zieht rng. */
+  parade,
+  /** Kompletter Elfmeter: kontext = { actor, keeper, diff }. */
+  aufloesen: resolveShot,
+  /** Balancewerte, damit der Prüfstand nicht doppelt pflegen muss. */
+  KONSTANTEN: {
+    POWER_IDEAL, OVERPOWER_FROM, OVERPOWER_ERR, OVERPOWER_LESEN, POWER_SAVE_RELIEF,
+    PREC_WIN_MIN, PREC_WIN_MAX, PREC_PERIOD_MS,
+    GOAL_HALF_W, GOAL_H, SPOT_V, BALL_R,
+    SHOT_V_MIN, SHOT_V_MAX, SLOWMO,
+    KEEPER_REACT_MS, KEEPER_GUESS_LEAD_MS, KEEPER_LATE_REFLEX
   }
 };
 
