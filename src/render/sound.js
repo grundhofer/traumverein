@@ -17,6 +17,11 @@
  *   bank.play('schuss', { lautstaerke: 0.9, hoehe: 1.1, panorama: -0.3 });
  *   bank.gong('aufstellung');
  *
+ *   bank.aufsetzer(0.85);                   // langer Ball schlägt auf dem Rasen auf
+ *   bank.netz(0.6);                         // Ball wühlt sich ins Maschenwerk
+ *   bank.pfosten();  bank.mauer();          // Aluminium bzw. Block der Mauer
+ *   bank.pfiff('anstoss');                  // 'halbzeit' | 'abpfiff' | 'standard'
+ *
  *   bank.atmoStart();
  *   bank.atmo({ zuschauer: 42000, kapazitaet: 50000, stimmung: 74,
  *               heimFuehrung: 1, minute: 63, druck: 0.4, heimAngriff: true });
@@ -101,6 +106,16 @@ export const KLANG_ALIASE = Object.freeze({
 /** Erlaubte Argumente für bank.gong(art). */
 export const GONG_ARTEN = Object.freeze(['aufstellung', 'tor', 'wechsel', 'ende']);
 
+/**
+ * Erlaubte Argumente für bank.pfiff(art).
+ *
+ *   anstoss    lang, am Ende ansteigend — eine Halbzeit beginnt
+ *   halbzeit   kurz, dann lang — Pause
+ *   abpfiff    dreimal — das Spiel ist aus
+ *   standard   ein kurzer Pfiff, der eine Standardsituation freigibt
+ */
+export const PFIFF_ARTEN = Object.freeze(['anstoss', 'halbzeit', 'abpfiff', 'standard']);
+
 /** Kopie der Klangnamen — damit niemand versehentlich die Vorlage verbiegt. */
 export function klangNamen() { return KLANGNAMEN.slice(); }
 
@@ -156,6 +171,25 @@ const GRUNDPEGEL = {
   wechsel: 0.32, jubel: 0.55, raunen: 0.45, pfeifkonzert: 0.40,
   trommel: 0.50, gong: 0.45
 };
+
+/* --- Zusatzklänge -------------------------------------------------------- *
+ * Aufsetzer, Netz, Aluminium, Mauer und die vier Schiedsrichterpfiffe stehen
+ * bewusst NICHT in KLANGNAMEN: play() und die drei Tabellen oben bleiben Wort
+ * für Wort das, wogegen die bestehenden Aufrufer geschrieben sind. Die neuen
+ * Klänge hängen an eigenen Bank-Methoden und an diesen eigenen Tabellen.
+ * Wo ein Zusatzklang denselben Bauplan benutzt wie ein alter, erbt er auch
+ * dessen Pegel und Mindestabstand — sonst klänge derselbe Vorgang je nach
+ * Aufrufweg verschieden laut.
+ * ----------------------------------------------------------------------- */
+const ZUSATZ_PEGEL = {
+  aufsetzer: 0.55, netz: 0.44,
+  pfosten: GRUNDPEGEL.pfosten, mauer: GRUNDPEGEL.block, pfiff: GRUNDPEGEL.pfiff
+};
+const ZUSATZ_ABSTAND = {
+  aufsetzer: 0.05, netz: 0.09,
+  pfosten: MINDESTABSTAND.pfosten, mauer: MINDESTABSTAND.block, pfiff: MINDESTABSTAND.pfiff
+};
+const ZUSATZ_HALL = { aufsetzer: 0.20, netz: 0.30 };
 
 /* Tonhöhen des Stadionsprecher-Gongs. Reine Dur-Intervalle, langer Ausklang. */
 const GONG_SATZ = {
@@ -229,6 +263,16 @@ function stummeBank(grund) {
     gong(art) {
       if (GONG_ARTEN.indexOf(art) < 0 && art !== undefined) {
         warnEinmal('gong:' + art, `[sound] Unbekannte Gongart "${art}" — ignoriert.`);
+      }
+      return false;
+    },
+    aufsetzer() { return false; },
+    netz() { return false; },
+    pfosten() { return false; },
+    mauer() { return false; },
+    pfiff(art) {
+      if (PFIFF_ARTEN.indexOf(art) < 0 && art !== undefined) {
+        warnEinmal('pfiff:' + art, `[sound] Unbekannte Pfiffart "${art}" — ignoriert.`);
       }
       return false;
     },
@@ -1007,6 +1051,85 @@ export function createSoundBank(opts) {
     return ende;
   }
 
+  /* --- 7.2 Zusatzklänge des Spielfelds ----------------------------------- *
+   * Zwei neue Baupläne (Aufsetzer, Netz) mit denselben Mitteln wie oben:
+   * Oszillator, Rauschpuffer, Biquad, Hüllkurve auf einem Gain. Aluminium und
+   * Mauer brauchen keinen eigenen — sie benutzen KLANGBAU.pfosten bzw.
+   * KLANGBAU.block, denn genau das ist der Vorgang. Zwei Baupläne für dasselbe
+   * Geräusch würden nur auseinanderlaufen.
+   * ---------------------------------------------------------------------- */
+
+  /**
+   * Aufsetzer: der Ball trifft den Rasen. Kurz, dumpf, ohne Nachklang.
+   *
+   * Die Wucht 0..1 steuert beides — Lautstärke UND Tiefpass. Das ist der
+   * ganze Trick: ein sanft abgelegter Ball plumpst unterhalb von 300 Hz und
+   * ist von oben kaum mehr als ein Tupfer, ein langer Ball aus vierzig Metern
+   * schlägt mit hörbarer Kante auf. Ohne die wandernde Grenzfrequenz klingt
+   * jeder Bodenkontakt gleich und man liest ihn nicht mehr als Aufprall.
+   */
+  function bauAufsetzer(t0, e, wucht) {
+    const st = neueStimme(e, ZUSATZ_HALL.aufsetzer * (0.4 + 0.6 * wucht));
+    const lp = filter('lowpass', (300 + 1450 * wucht) * e.hoehe, 1.05);
+    lp.connect(st.ein);
+
+    /* Der Bodenkontakt: ein Rauschstoß, dem der Tiefpass die Höhen nimmt. */
+    const q = rauschQuelle(false);
+    const qg = verstaerker(0);
+    q.connect(qg); qg.connect(lp);
+    const abfall = 0.042 + 0.050 * wucht;
+    const ende = huelle(qg.gain, t0, 0.001, 0.003, abfall, 0.30 + 0.55 * wucht);
+
+    /* Darunter der Körper des Balls: fällt in 50 ms auf den Rasenton. */
+    const f0 = (84 + 56 * wucht) * e.hoehe;
+    const os = oszi('sine', f0);
+    fahrt(os.frequency, f0, 44 * e.hoehe, t0, 0.05);
+    const og = verstaerker(0);
+    os.connect(og); og.connect(lp);
+    const bis = huelle(og.gain, t0, 0.002, 0.002, abfall * 1.25, 0.28 + 0.42 * wucht);
+
+    const schluss = Math.max(ende, bis);
+    q.start(t0, versatz(rauschWeiss)); q.stop(schluss);
+    os.start(t0); os.stop(schluss);
+    abschluss(os, st);
+    return schluss;
+  }
+
+  /**
+   * Netz: der Ball wühlt sich ins Maschenwerk.
+   *
+   * Die Eindringtiefe (Wucht 0..1) bestimmt die Länge — 80 ms beim Abstauber
+   * aus zwei Metern, 180 ms beim Vollspann, der das Netz noch einmal
+   * nachschwingen lässt. Das Band fährt dabei nach unten: die Maschen rascheln
+   * hell, die auslaufende Bewegung ist dumpf.
+   */
+  function bauNetz(t0, e, wucht) {
+    const laenge = 0.08 + 0.10 * wucht;             // 80..180 ms
+    const st = neueStimme(e, ZUSATZ_HALL.netz);
+    const q = rauschQuelle(false, 0.92 + 0.26 * wucht);
+    const bp = filter('bandpass', 3100 * e.hoehe, 0.85);
+    fahrt(bp.frequency, 3100 * e.hoehe, 1750 * e.hoehe, t0, laenge);
+    const g = verstaerker(0);
+    q.connect(bp); bp.connect(g); g.connect(st.ein);
+
+    /* Anschlag, Nachschwingen, Ausklingen — von Hand gesetzt, weil huelle()
+       nur eine einzige Spitze kennt. Dieselbe Machart wie beim Netz in tor(). */
+    const spitze = 0.34 + 0.46 * wucht;
+    const p = g.gain;
+    p.cancelScheduledValues(t0);
+    p.setValueAtTime(0.0001, t0);
+    p.exponentialRampToValueAtTime(spitze, t0 + 0.006);
+    p.exponentialRampToValueAtTime(spitze * 0.16, t0 + laenge * 0.45);
+    p.exponentialRampToValueAtTime(spitze * 0.42, t0 + laenge * 0.60);
+    p.exponentialRampToValueAtTime(0.0001, t0 + laenge);
+    p.setValueAtTime(0, t0 + laenge + 0.002);
+    const ende = t0 + laenge + 0.02;
+
+    q.start(t0, versatz(rauschWeiss)); q.stop(ende);
+    abschluss(q, st);
+    return ende;
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // 8. STADIONATMOSPHÄRE
   //    Ein einziger, dauerhaft stehender Graph. Nichts wird nachgebaut,
@@ -1403,6 +1526,113 @@ export function createSoundBank(opts) {
     }
   }
 
+  /**
+   * Gemeinsamer Anlauf der Zusatzklänge. Bewusst dieselben Wächter in
+   * derselben Reihenfolge wie play() — zerstört, stumm, Stimmenzahl,
+   * Mindestabstand, schlafender Kontext — und im Fehlerfall dieselbe
+   * Rückbuchung der halb gebauten Stimmen. Eigener Schlüsselraum
+   * ('zusatz:…') für den Mindestabstand, damit bank.pfosten() und
+   * play('pfosten') sich nicht gegenseitig wegdrosseln.
+   *
+   * @param {string} schluessel Eintrag in ZUSATZ_PEGEL/ZUSATZ_ABSTAND
+   * @param {object} [opts]     { lautstaerke, hoehe, panorama, verzoegerung }
+   * @param {function} bau      (t0, e) => Endzeit
+   */
+  function spieleZusatz(schluessel, opts, bau) {
+    if (zerstoert || !ctx) return false;
+    if (stumm || lautstaerke <= 0) return false;
+    if (stimmenAktiv >= o.maxStimmen) return false;
+    if (ctx.state === 'suspended') aufwecken();
+    if (!puffernSicherstellen()) return false;
+
+    const t = jetzt();
+    const marke = 'zusatz:' + schluessel;
+    const abstand = ZUSATZ_ABSTAND[schluessel] || 0.03;
+    const zuletzt = letzteAusloesung[marke];
+    if (zuletzt !== undefined && t - zuletzt < abstand) return false;
+    letzteAusloesung[marke] = t;
+
+    const q = (opts && typeof opts === 'object') ? opts : {};
+    const e = {
+      pegel: (ZUSATZ_PEGEL[schluessel] || 0.5) * clamp(zahl(q.lautstaerke, 1), 0, 2),
+      hoehe: clamp(zahl(q.hoehe, 1), 0.25, 4),
+      panorama: clamp(zahl(q.panorama, 0), -1, 1),
+      seite: q.seite === 'gast' ? 'gast' : 'heim'
+    };
+    const t0 = t + 0.005 + clamp(zahl(q.verzoegerung, 0), 0, 5);
+
+    stimmenImBau = 0;
+    try {
+      bau(t0, e);
+      return true;
+    } catch (err) {
+      warnEinmal('bau:' + schluessel, `[sound] Klang "${schluessel}" ließ sich nicht bauen: ${err && err.message}`);
+      stimmenAktiv = Math.max(0, stimmenAktiv - stimmenImBau);
+      return false;
+    }
+  }
+
+  /**
+   * Der Ball setzt auf dem Rasen auf.
+   * @param {number} [wucht01] 0 = sanft abgelegt, 1 = langer Ball aus 40 Metern
+   * @param {object} [opts]    { lautstaerke, hoehe, panorama }
+   * @returns {boolean} true, wenn wirklich etwas erklungen ist
+   */
+  function aufsetzer(wucht01, opts) {
+    const w = clamp(zahl(wucht01, 0.5), 0, 1);
+    return spieleZusatz('aufsetzer', opts, (t0, e) => bauAufsetzer(t0, e, w));
+  }
+
+  /**
+   * Der Ball im Netz.
+   * @param {number} [wucht01] Eindringtiefe 0..1 — bestimmt die Länge (80–180 ms)
+   * @param {object} [opts]    { lautstaerke, hoehe, panorama }
+   */
+  function netz(wucht01, opts) {
+    const w = clamp(zahl(wucht01, 0.5), 0, 1);
+    return spieleZusatz('netz', opts, (t0, e) => bauNetz(t0, e, w));
+  }
+
+  /** Aluminium: Ball an Pfosten oder Latte. Für die Latte hoehe > 1 mitgeben. */
+  function pfosten(opts) {
+    return spieleZusatz('pfosten', opts, KLANGBAU.pfosten);
+  }
+
+  /** Die Mauer blockt: derselbe Bauplan wie block, nur eine Spur dumpfer —
+      eine Wand aus Körpern klingt tiefer als ein einzelnes Bein. */
+  function mauer(opts) {
+    return spieleZusatz('mauer', opts, (t0, e) => KLANGBAU.block(t0, {
+      pegel: e.pegel, hoehe: e.hoehe * 0.88, panorama: e.panorama, seite: e.seite
+    }));
+  }
+
+  /**
+   * Schiedsrichterpfiff.
+   * @param {string} [art]  einer aus PFIFF_ARTEN; unbekannt ⇒ 'standard'
+   * @param {object} [opts] { lautstaerke, hoehe, panorama }
+   */
+  function pfiff(art, opts) {
+    const gewaehlt = PFIFF_ARTEN.indexOf(art) >= 0 ? art : 'standard';
+    if (art !== undefined && PFIFF_ARTEN.indexOf(art) < 0) {
+      warnEinmal('pfiff:' + art,
+        `[sound] Unbekannte Pfiffart "${art}" — nehme "standard". Bekannt: ${PFIFF_ARTEN.join(', ')}`);
+    }
+    return spieleZusatz('pfiff', opts, (t0, e) => {
+      if (gewaehlt === 'anstoss') return trillerpfeife(t0, 0.80, e, 1, 0.06);
+      if (gewaehlt === 'halbzeit') {
+        /* Kurz, dann lang — die Pause hört sich anders an als das Spielende. */
+        trillerpfeife(t0, 0.19, e, 1);
+        return trillerpfeife(t0 + 0.33, 0.46, e, 0.997);
+      }
+      if (gewaehlt === 'abpfiff') {
+        trillerpfeife(t0, 0.17, e, 1);
+        trillerpfeife(t0 + 0.31, 0.17, e, 1.004);
+        return trillerpfeife(t0 + 0.62, 0.38, e, 0.996);
+      }
+      return trillerpfeife(t0, 0.34, e, 1);
+    });
+  }
+
   /** Startet die Atmosphäre (idempotent) und blendet sie über 1,6 s ein. */
   function atmoStart() {
     if (zerstoert || !ctx) return false;
@@ -1507,6 +1737,7 @@ export function createSoundBank(opts) {
     namen: klangNamen(),
     play, atmo, atmoStart, atmoStop,
     setLautstaerke, setStumm, gong,
+    aufsetzer, netz, pfosten, mauer, pfiff,
     aufwecken, status, destroy
   };
   return bank;
