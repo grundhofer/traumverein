@@ -5,14 +5,22 @@ trockener Reporterton – aber mit moderner Simulationstiefe und einem eigenen D
 
 ## Worum es geht
 
-Das Ziel: ein Fußballmanager, der sich anfühlt wie **Anstoss 1/2** – Büro statt Tabelle,
-Reporterton statt Statistikblatt – aber mit einer Simulation, die heutigen Ansprüchen
-standhält. Dazu ein Dreh, den es so nicht gibt: **jeder Verein tritt mit seiner historisch
-stärksten Elf an, gemeinsam mit dem aktuellen Kader.**
+Der Auftrag war, zwei Dinge einzufangen: die **ran-Fußball-Romantik** und den **Take der
+Anstoss-Reihe**.
+
+Also Samstagabend, Fanfare, Bauchbinde. Der Reporterton, der ein 0:0 in Uerdingen
+ernst nimmt. Das Gefühl, dass ein Spieltag ein Ereignis ist und kein Datensatz. Und
+dazu Anstoss' Blick auf den Beruf: Manager sein heißt Büro, Aktenschrank, Vorstand,
+Presse – die Elf ist nur eine von vielen Baustellen, und das Spiel nimmt sich dabei
+selbst nie ganz ernst.
+
+Daraus ist ein Fußballmanager geworden, der beides zusammenbringt – mit einem Dreh,
+den es so nicht gibt: **jeder Verein tritt mit seiner historisch stärksten Elf an,
+gemeinsam mit dem aktuellen Kader.**
 
 Umgesetzt in **reinem JavaScript, ohne eine einzige Abhängigkeit und ohne Build-Schritt** –
-ES-Module, Canvas 2D, ein Entwicklungsserver aus Node-Bordmitteln. Das ist keine Nostalgie,
-sondern eine Bedingung: Was hier liegt, läuft in zehn Jahren noch, wenn ein Browser es öffnet.
+ES-Module, Canvas 2D, ein Entwicklungsserver aus Node-Bordmitteln. Was hier liegt, läuft in
+zehn Jahren noch, wenn ein Browser es öffnet.
 
 Die verbindlichen Modulverträge stehen in [`docs/CONTRACTS.md`](docs/CONTRACTS.md), der
 Bauverlauf in [`docs/ROADMAP.md`](docs/ROADMAP.md). Grundsatz beider Dokumente: **jede Zahl
