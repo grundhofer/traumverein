@@ -27,6 +27,50 @@ Bauverlauf in [`docs/ROADMAP.md`](docs/ROADMAP.md). Grundsatz beider Dokumente: 
 ist gemessen, nicht behauptet** – `npm run check` fährt 30 Prüfstände, und was ein Ziel
 verfehlt, steht dort als offener Punkt mit Zahl, statt stillschweigend zu verschwinden.
 
+## Bilder
+
+Der Aktenschrank links, die Bauchbinde oben, der Reporterton überall – ein Rundgang durch
+eine Saison beim HSV.
+
+![Neues Spiel: Vereinsauswahl, Schwierigkeitsgrad, Spieldarstellung](docs/screenshots/01-neues-spiel.jpg)
+*Neues Spiel – 36 Vereine aus beiden Profiligen, vier Schwierigkeitsgrade, drei Wege, ein Spiel zu erleben.*
+
+![Managerbüro mit Post, nächstem Spiel und Pinnwand](docs/screenshots/02-managerbuero.jpg)
+*Das Managerbüro: Post, was heute ansteht, Vorstand, Fanstimmung, Kassenstand.*
+
+![Kader mit Spielerakte von Uwe Seeler](docs/screenshots/03-kader.jpg)
+*Der Kader – 10 Legenden, 14 Moderne. Uwe Seeler steht mit dem Etikett „Ära 1966" in der Akte.*
+
+![Taktikbildschirm mit Formation, Spielstil und Taktikbrett](docs/screenshots/04-taktik.jpg)
+*Taktik: Grundordnung, Spielstil, Taktikbrett – und die Chemie, die 9 Legenden neben 2 Modernen kostet.*
+
+![Vorbericht mit beiden Aufstellungen und Schiedsrichterakte](docs/screenshots/05-vorbericht.jpg)
+*Vorbericht: beide Aufstellungen, Spielumfeld, Wetter – und die Akte des Schiedsrichters.*
+
+![Freistoß-Minispiel: Mauer, Richtung, Höhe, Effet](docs/screenshots/06-eingreifen-freistoss.jpg)
+*Selbst eingreifen – der Freistoß: erst Richtung, dann Höhe über die Mauer, zuletzt der Effet.*
+
+![Torabschluss-Minispiel mit Trefferchancen](docs/screenshots/07-eingreifen-abschluss.jpg)
+*Der Torabschluss: die Zahl am Knopf ist die tatsächliche Chance dieses Schusses – Hrubesch, 47. Minute.*
+
+![Kombinations-Minispiel in der Vogelperspektive](docs/screenshots/08-eingreifen-kombination.jpg)
+*Die Kombination im letzten Drittel: Flachpass, Steilpass, Chip oder Doppelpass – drei Stationen bis zum Abschluss.*
+
+![Halbzeitansprache mit fünf Tonlagen](docs/screenshots/09-halbzeitansprache.jpg)
+*Halbzeit, Rückstand. Fünf Tonlagen, und jede hat ihren Preis.*
+
+![Nachbericht mit Torschützen, Statistik und Konferenz](docs/screenshots/10-nachbericht.jpg)
+*Nachbericht: Torschützen, Karten, Wechsel, Statistik – und die Konferenz der anderen Plätze.*
+
+![Tabelle der 1. Bundesliga](docs/screenshots/11-tabelle.jpg)
+*Die Tabelle, mit Form, Zuschauerschnitt und Kaderwert.*
+
+![Stadionbildschirm mit Rängen und Ticketpreisen](docs/screenshots/12-stadion.jpg)
+*Das Stadion: Ränge, Zustand, Ticketpreise – und die Empfehlung der Geschäftsstelle.*
+
+![Transfermarkt mit Spielersuche](docs/screenshots/13-transfermarkt.jpg)
+*Der Transfermarkt: 1674 Spieler in der Kartei, Beckenbauer und Netzer inklusive.*
+
 ## Der besondere Dreh
 
 **Jeder Verein tritt mit seiner historisch stärksten Mannschaft an – zusammen mit dem aktuellen Kader.**
