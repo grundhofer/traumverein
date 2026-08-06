@@ -51,10 +51,13 @@ eine Saison beim HSV.
 *Selbst eingreifen – der Freistoß: erst Richtung, dann Höhe über die Mauer, zuletzt der Effet.*
 
 ![Torabschluss-Minispiel mit Trefferchancen](docs/screenshots/07-eingreifen-abschluss.jpg)
-*Der Torabschluss: die Zahl am Knopf ist die tatsächliche Chance dieses Schusses – Hrubesch, 47. Minute.*
+*Der Torabschluss: die Zahl am Knopf ist die tatsächliche Chance dieses Schusses – Keegan, 6 Meter, zentral.*
 
 ![Kombinations-Minispiel in der Vogelperspektive](docs/screenshots/08-eingreifen-kombination.jpg)
 *Die Kombination im letzten Drittel: Flachpass, Steilpass, Chip oder Doppelpass – drei Stationen bis zum Abschluss.*
+
+![Das ganze Spiel in der Vogelperspektive, alle 22 Spieler namentlich](docs/screenshots/14-ganzes-spiel.jpg)
+*„Ganzes Spiel": die komplette Partie von oben, jeder Mann mit Namen – Seeler, Magath und Hrubesch gegen Havelse, 24. Minute, 1:1.*
 
 ![Halbzeitansprache mit fünf Tonlagen](docs/screenshots/09-halbzeitansprache.jpg)
 *Halbzeit, Rückstand. Fünf Tonlagen, und jede hat ihren Preis.*
