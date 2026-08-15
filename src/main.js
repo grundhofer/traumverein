@@ -228,7 +228,10 @@ async function zeigeStartbildschirm() {
 
   app.root.innerHTML = '';
   app.root.appendChild(screen);
-  nameInput.focus();
+  // `preventScroll`: Das Feld steht weit unten. Ohne diesen Zusatz rollt der
+  // Browser es beim Fokussieren ins Bild und schiebt dabei den Schriftzug aus
+  // dem Fenster – man landet auf einem Startbildschirm mit abgeschnittenem Kopf.
+  nameInput.focus({ preventScroll: true });
 }
 
 async function zeigeLadedialog() {

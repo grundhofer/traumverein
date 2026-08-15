@@ -10,7 +10,7 @@
  * genau der Fehler, gegen den auch tools/server.js gebaut ist.
  */
 
-const FASSUNG = '133601b1e6af';
+const FASSUNG = '437ad66c5bcf';
 const SPEICHER = 'traumverein-' + FASSUNG;
 
 const DATEIEN = [
