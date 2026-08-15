@@ -11,6 +11,10 @@ Elf an – zusammen mit dem aktuellen Kader.**
 
 Keine Installation, kein Konto, kein Download. Der Spielstand bleibt in Ihrem Browser.
 
+Lieber offline? Es gibt das ganze Spiel als **eine einzige HTML-Datei** unter
+[Releases](https://github.com/grundhofer/traumverein/releases/latest) – herunterladen,
+doppelklicken, spielen. Kein Node, kein npm, kein Server.
+
 ![Neues Spiel: Vereinsauswahl, Schwierigkeitsgrad, Spieldarstellung](docs/screenshots/01-neues-spiel.jpg)
 *36 Vereine aus beiden Profiligen, vier Schwierigkeitsgrade, drei Wege, ein Spiel zu erleben.*
 
@@ -111,6 +115,11 @@ sich jede Saison merkt.
 
 **Am einfachsten: [grundhofer.github.io/traumverein](https://grundhofer.github.io/traumverein/)
 öffnen und losspielen.** Dieselbe Fassung wie hier im Repository, nur schon ausgeliefert.
+
+**Offline, ohne alles:** die Datei `traumverein.html` aus dem
+[neuesten Release](https://github.com/grundhofer/traumverein/releases/latest) laden und im
+Browser öffnen. Das ganze Spiel steckt in dieser einen Datei – Module, Grafik, Ton, alle
+864 Spieler. Sie braucht einen Browser ab Chrome/Edge 89, Firefox 108 oder Safari 16.4.
 
 Wer es lieber selbst betreibt, braucht keinen Build-Schritt, aber einen Webserver
 (ES-Module laufen nicht über `file://`):

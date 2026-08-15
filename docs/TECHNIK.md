@@ -30,6 +30,40 @@ Browser-Zwischenspeicher ab. `python3 -m http.server` tut das nicht und liefert 
 Änderungen gern den alten Stand aus – bei ES-Modulen führt das zu Importfehlern, die wie
 Codefehler aussehen.
 
+## Ausliefern
+
+Zwei Wege, beide ohne Bauvorgang im Alltag:
+
+**GitHub Pages** liefert das Repository unverändert aus – jeder Pfad im Projekt ist
+relativ, es gibt nichts umzubauen. `.nojekyll` ist dabei Pflicht und keine Formalie:
+Jekyll verschluckt Dateien mit führendem Unterstrich, und `src/data/squads/_helper.js`
+wäre genau das Modul, das dann fehlt.
+
+**Eine einzige HTML-Datei** für den Download erzeugt `npm run build:single`
+(→ `dist/traumverein.html`, rund 4,4 MB, in `.gitignore`).
+
+```bash
+npm run build:single
+```
+
+Der Trick dahinter: Ein Browser lädt ES-Module nicht über `file://`. Das Skript legt
+deshalb jedes Modul als Zeichenkette in die Datei, macht daraus zur Laufzeit je einen Blob
+und verdrahtet sie über eine **Import-Map**. Weil relative Angaben gegen
+`blob:null/<uuid>` aufgelöst würden und ins Leere liefen, schreibt es jede Angabe in einen
+absoluten Namen um – aus `'./finances.js'` in `club/stadium.js` wird `'tv:club/finances.js'`.
+Das gilt auch für die dynamische Vorlage `` import(`./screens/${id}.js`) ``, deren fester
+Anfang mit ersetzt wird.
+
+Der Ausdruck trifft zwangsläufig auch Import-Beispiele in JSDoc-Kommentaren. Was auf kein
+existierendes Modul zeigt, bleibt unangetastet und wird am Ende des Laufs aufgelistet –
+lieber ein Kommentar zu viel im Bericht als eine stillschweigend verbogene Zeile. Derselbe
+Bericht nennt die dynamischen Vorlagen, die niemand statisch prüfen kann.
+
+`build-single.js` ist ausdrücklich **kein Build-Schritt des Projekts**, sondern ein
+Erzeuger für ein Download-Artefakt; es steht darum in der Ausnahmeliste von
+`check-suite.js`. Die Einzeldatei setzt Import-Maps voraus: Chrome/Edge ab 89, Firefox ab
+108, Safari ab 16.4.
+
 ## Projektstruktur
 
 ```

@@ -40,6 +40,7 @@ const SELBST = basename(fileURLToPath(import.meta.url));
 /** Was hier steht, läuft nicht mit – jeder Eintrag braucht eine Begründung. */
 const AUSGENOMMEN = {
   'server.js': 'Entwicklungsserver, läuft endlos',
+  'build-single.js': 'Erzeuger für das Download-Paket, prüft nichts',
   [SELBST]: 'diese Datei'
 };
 

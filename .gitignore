@@ -15,3 +15,6 @@ Thumbs.db
 # Laufzeit- und Prüfausgaben
 *.log
 /tmp/
+
+# Erzeugtes Download-Paket (tools/build-single.js)
+dist/
