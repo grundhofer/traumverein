@@ -124,11 +124,9 @@ sich jede Saison merkt.
 Browser öffnen. Das ganze Spiel steckt in dieser einen Datei – Module, Grafik, Ton, alle
 864 Spieler. Sie braucht einen Browser ab Chrome/Edge 89, Firefox 108 oder Safari 16.4.
 
-> **Eine Einschränkung offline:** Aus einer lokalen Datei geöffnet, verweigert der Browser
-> jeder Seite den Zugriff auf seine Datenbank – das Spiel kann dort also nicht in den
-> Browser speichern und sagt das auch. Sichern Sie Ihren Stand stattdessen über das Symbol
-> ⬇ in der Kopfleiste als Datei; einlesen geht genauso. Wer lieber im Browser speichert,
-> spielt online.
+Speichern und Fortsetzen funktionieren dort genauso wie online. Aus einer lokalen Datei
+verweigert der Browser zwar den Zugriff auf seine Datenbank – das Spiel legt seinen Stand
+dann gepackt daneben, was es 12-mal kleiner macht und bequem hineinpasst.
 
 Wer es lieber selbst betreibt, braucht keinen Build-Schritt, aber einen Webserver
 (ES-Module laufen nicht über `file://`):
@@ -190,10 +188,10 @@ Seite mit ungesicherten Tagen schließt, wird vorher gefragt.
 Zusätzlich von Hand: `Strg` + `S` oder das Symbol 💾 in der Kopfleiste legt einen eigenen
 Stand an, der von der Automatik nicht überschrieben wird.
 
-Alles liegt in der Datenbank des Browsers – also im Browser, auf Ihrem Rechner, ohne
-Konto. Über das Symbol ⬇ lässt sich ein Stand zusätzlich als **Datei** sichern und später
-wieder einlesen; das überlebt auch das Löschen der Browserdaten und lässt sich zwischen
-Online-Fassung und Download hin- und herreichen.
+Alles bleibt auf Ihrem Rechner, ohne Konto: online in der Datenbank des Browsers, in der
+heruntergeladenen Datei gepackt daneben. Über das Symbol ⬇ lässt sich ein Stand zusätzlich
+als **Datei** sichern und später wieder einlesen; das überlebt auch das Löschen der
+Browserdaten und lässt sich zwischen Online-Fassung und Download hin- und herreichen.
 
 ### Editor (hinter einem Tastenkürzel)
 

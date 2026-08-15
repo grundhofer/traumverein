@@ -215,7 +215,16 @@ async function zeigeStartbildschirm() {
     box,
     el('div', { class: 'tv-mini', style: { color: 'var(--papier-tief)', textAlign: 'center', maxWidth: '760px' } },
       'Jede Mannschaft tritt mit ihren größten Spielern aller Zeiten an – Seite an Seite mit dem aktuellen Kader. ',
-      'Beckenbauer und Kane in einer Elf: Der Rest ist Ihre Aufgabe.'));
+      'Beckenbauer und Kane in einer Elf: Der Rest ist Ihre Aufgabe.'),
+    // Die Geschichtsseite liegt neben dem Spiel und nicht in ihm: In der
+    // heruntergeladenen Einzeldatei gibt es sie nicht, deshalb zeigt der Verweis
+    // ins Netz statt auf eine Nachbardatei, die dort fehlen würde.
+    el('div', { class: 'tv-mini', style: { textAlign: 'center', marginTop: '10px' } },
+      el('a', {
+        href: 'https://grundhofer.github.io/traumverein/geschichte.html',
+        target: '_blank', rel: 'noopener',
+        style: { color: 'var(--gold-hell)' }
+      }, 'Wie dieses Spiel entstanden ist')));
 
   app.root.innerHTML = '';
   app.root.appendChild(screen);

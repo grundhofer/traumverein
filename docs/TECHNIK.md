@@ -115,15 +115,26 @@ vorhandenen Datenbank die Ablage – möglich, wenn ein Upgrade beim ersten Mal 
 zählt `openDb()` die Version einmal hoch und legt sie nachträglich an, statt den Spieler
 mit einer unbrauchbaren Datenbank sitzen zu lassen.
 
-**Über `file://` gibt es keine Datenbank.** Chrome verweigert einer lokal geöffneten Datei
-den IndexedDB-Zugriff – und zwar wortlos: `indexedDB` existiert, `open()` nimmt den Aufruf
-an, und danach kommt weder `onsuccess` noch `onerror`. Ohne Gegenmaßnahme wartet das Spiel
-ewig auf eine Antwort, die nie kommt, und das Speichern hängt stumm. `openDb()` in
-`core/state.js` prüft deshalb das Protokoll und lehnt sofort mit einer Begründung ab; ein
-Zeitgeber von 8 s fängt zusätzlich alles ab, was sich sonst noch aufhängt (Privatmodus,
-gesperrte Datenbanken). Die Fehlermeldung des Spiels verweist auf „Als Datei sichern", und
-dieser Weg funktioniert lokal einwandfrei – nachgemessen: 2,85 MB JSON, Anker-Klick,
-Bestätigung.
+**Über `file://` gibt es keine Datenbank – aber eine zweite Ablage.** Chrome verweigert
+einer lokal geöffneten Datei den IndexedDB-Zugriff, und zwar wortlos: `indexedDB`
+existiert, `open()` nimmt den Aufruf an, und danach kommt weder `onsuccess` noch
+`onerror`. Ohne Gegenmaßnahme wartet das Spiel ewig auf eine Antwort, die nie kommt.
+`openDb()` prüft deshalb das Protokoll und lehnt sofort ab; ein Zeitgeber von 8 s fängt
+zusätzlich alles ab, was sich anders aufhängt (Privatmodus, gesperrte Datenbanken).
+
+`localStorage` erlaubt der Browser auch lokal – nur passt ein Spielstand dort nicht hinein:
+2,71 MB roh gegen rund 5 MB Kontingent für alles zusammen. Gemessen komprimiert ein Stand
+aber um den **Faktor 12,2**: 2,71 MB → 0,22 MB gzip → 0,30 MB als Base64. Deshalb schreibt
+`ablageSchreiben()` erst in die Datenbank und, wenn die nicht antwortet, gepackt in den
+lokalen Speicher; `ablageLesen()` sieht in beiden nach. Gepackt wird mit `CompressionStream`
+— das kann jeder Browser, der auch Import-Maps beherrscht, also keine Bibliothek.
+
+Der Spielstandeintrag merkt sich in `ablage`, wo er liegt (`'datenbank'` oder `'lokal'`).
+Nachgemessen: online `datenbank` ohne lokale Kopie, in der Einzeldatei `lokal` mit 724 KB
+gepackt — und in einer getrennten Browsersitzung wieder ladbar.
+
+Unabhängig davon bleibt „Als Datei sichern" (⬇) der Weg, der auch das Löschen der
+Browserdaten überlebt und zwischen beiden Fassungen funktioniert.
 
 Sie wachsen nicht unbegrenzt: Bei jedem Saisonwechsel verdichtet
 `core/state.js:verdichteVergangenheit()` die Vergangenheit — ein Spieler, der vor drei

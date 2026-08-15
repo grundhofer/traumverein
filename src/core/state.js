@@ -1503,6 +1503,86 @@ function openDb() {
   return dbPromise;
 }
 
+/* ---------------------------------------------------------------------------
+ * Zweite Ablage: gepackt im lokalen Speicher
+ *
+ * Aus einer lokalen Datei geöffnet (`file://`) verweigert der Browser die
+ * Datenbank – localStorage erlaubt er. Nur passt ein Spielstand dort nicht hinein:
+ * roh sind es rund 2,7 MB, das Kontingent liegt bei etwa 5 MB für alles zusammen.
+ *
+ * Gemessen komprimiert ein Spielstand allerdings um den Faktor 12: 2,71 MB roh →
+ * 0,22 MB gzip → 0,30 MB als Base64. Damit passen auch mehrere Stände bequem.
+ * Gepackt wird mit CompressionStream, das jeder Browser mitbringt, der auch die
+ * Einzeldatei laden kann – keine Bibliothek, keine Abhängigkeit.
+ * ------------------------------------------------------------------------- */
+
+/** Steht die gepackte Ersatzablage zur Verfügung? */
+function packenMoeglich() {
+  return typeof CompressionStream !== 'undefined' && !!storage();
+}
+
+async function packen(text) {
+  const strom = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+  const bytes = new Uint8Array(await new Response(strom).arrayBuffer());
+  // String.fromCharCode nimmt keine 220.000 Argumente auf einmal – häppchenweise.
+  let roh = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    roh += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(roh);
+}
+
+async function entpacken(base64) {
+  const roh = atob(base64);
+  const bytes = new Uint8Array(roh.length);
+  for (let i = 0; i < roh.length; i++) bytes[i] = roh.charCodeAt(i);
+  const strom = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(strom).text();
+}
+
+/**
+ * Schreibt einen Spielstand – erst in die Datenbank, sonst gepackt daneben.
+ * @returns {Promise<'datenbank'|'lokal'>} wohin es ging
+ */
+async function ablageSchreiben(slot, json) {
+  try {
+    await dbTx('readwrite', store => store.put(json, SAVE_PREFIX + slot));
+    return 'datenbank';
+  } catch (dbFehler) {
+    if (!packenMoeglich()) throw dbFehler;
+    let gepackt;
+    try { gepackt = await packen(json); }
+    catch (e) { throw dbFehler; }
+    try {
+      storage().setItem(SAVE_PREFIX + slot, gepackt);
+    } catch (e) {
+      throw new Error('Der lokale Speicher ist voll. Sichern Sie über ⬇ als Datei '
+        + 'und löschen Sie einen alten Spielstand.');
+    }
+    return 'lokal';
+  }
+}
+
+/** Liest einen Spielstand aus der Datenbank oder aus der gepackten Ablage. */
+async function ablageLesen(slot) {
+  try {
+    const roh = await dbTx('readonly', store => store.get(SAVE_PREFIX + slot));
+    if (roh) return roh;
+  } catch (e) { /* keine Datenbank – dann eben daneben nachsehen */ }
+  const store = storage();
+  const gepackt = store && store.getItem(SAVE_PREFIX + slot);
+  if (!gepackt) return null;
+  return await entpacken(gepackt);
+}
+
+/** Löscht einen Spielstand in beiden Ablagen – egal, wo er lag. */
+async function ablageLoeschen(slot) {
+  try { await dbTx('readwrite', store => store.delete(SAVE_PREFIX + slot)); }
+  catch (e) { /* nicht vorhanden ist auch gelöscht */ }
+  const store = storage();
+  if (store) store.removeItem(SAVE_PREFIX + slot);
+}
+
 function dbTx(modus, arbeit) {
   return openDb().then(db => new Promise((resolve, reject) => {
     const tx = db.transaction(DB_STORE, modus);
@@ -1536,7 +1616,7 @@ export async function saveGame(state, slot = 1, label = '') {
   const entry = saveEntry(state, slot, label);
   entry.groesse = json.length;
 
-  await dbTx('readwrite', store => store.put(json, SAVE_PREFIX + slot));
+  entry.ablage = await ablageSchreiben(slot, json);
 
   const store = storage();
   if (store) {
@@ -1549,7 +1629,7 @@ export async function saveGame(state, slot = 1, label = '') {
 }
 
 export async function loadGame(slot = 1) {
-  const raw = await dbTx('readonly', store => store.get(SAVE_PREFIX + slot));
+  const raw = await ablageLesen(slot);
   if (!raw) return null;
   return deserialize(raw);
 }
@@ -1564,7 +1644,7 @@ export function listSaves() {
 }
 
 export async function deleteSave(slot) {
-  await dbTx('readwrite', store => store.delete(SAVE_PREFIX + slot));
+  await ablageLoeschen(slot);
   const store = storage();
   if (store) store.setItem(SAVE_INDEX, JSON.stringify(listSaves().filter(e => e.slot !== slot)));
 }
