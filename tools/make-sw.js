@@ -24,8 +24,13 @@ const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Verzeichnisse, die vollständig mitmüssen. */
 const ORDNER = ['src', 'styles', 'icons'];
-/** Einzelne Dateien am Wurzelverzeichnis. */
-const EINZELN = ['index.html', 'manifest.webmanifest'];
+/**
+ * Einzelne Dateien am Wurzelverzeichnis. Die Geschichtsseite gehört dazu, weil
+ * der Startbildschirm auf sie verweist – ohne sie liefe der Verweis offline ins
+ * Leere. Ihre Bilder bleiben draußen: Sie wiegen 1,7 MB und sind für das Spiel
+ * entbehrlich; ohne Netz zeigt die Seite dann eben nur ihren Text.
+ */
+const EINZELN = ['index.html', 'manifest.webmanifest', 'geschichte.html'];
 
 function sammeln(ordner, gesammelt = []) {
   for (const eintrag of readdirSync(join(WURZEL, ordner)).sort()) {

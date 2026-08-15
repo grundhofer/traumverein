@@ -10,11 +10,12 @@
  * genau der Fehler, gegen den auch tools/server.js gebaut ist.
  */
 
-const FASSUNG = 'cb9e6aa2ea9d';
+const FASSUNG = '133601b1e6af';
 const SPEICHER = 'traumverein-' + FASSUNG;
 
 const DATEIEN = [
   './',
+  'geschichte.html',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',

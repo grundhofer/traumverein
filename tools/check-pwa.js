@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ORDNER = ['src', 'styles', 'icons'];
-const EINZELN = ['index.html', 'manifest.webmanifest'];
+const EINZELN = ['index.html', 'manifest.webmanifest', 'geschichte.html'];
 
 let fehler = 0;
 const meckern = (text) => { fehler++; console.error('  ✘ ' + text); };
