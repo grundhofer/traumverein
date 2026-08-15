@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Die Geschichte von TRAUMVEREIN</title>
+<meta name="description" content="Wie aus zwei Vorbildern – ran-Fußball und Anstoss – ein Manager mit 864 handgeschriebenen Spielern wurde. Der Bauverlauf eines Spiels ohne eine einzige Abhängigkeit.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚽</text></svg>">
+<style>
+:root{
+  --gruen-900:#14361a; --gruen-800:#1c4a22; --gruen-700:#276b2a; --gruen-500:#3d9440;
+  --holz-900:#2a1a0e; --holz-800:#3d2716; --holz-700:#55361d; --holz-500:#8b5a2b;
+  --papier:#f2e8cf; --papier-dunkel:#e0d2ae; --papier-tief:#c9b78d; --beige:#e8d9b0;
+  --rot:#c1272d; --rot-hell:#e04b4b; --blau:#1c4f8f; --gold:#d9a521; --gold-hell:#f0c956;
+  --flaeche:#cfc2a0; --flaeche-hell:#e6dcc0; --tinte:#241c10; --tinte-weich:#4a3d28;
+  --linie:#8a7852;
+  --font-ui:"Segoe UI","Trebuchet MS",Tahoma,"DejaVu Sans",sans-serif;
+  --font-num:"Consolas","SF Mono","DejaVu Sans Mono",monospace;
+  --font-titel:"Impact","Haettenschweiler","Franklin Gothic Bold","Arial Black",sans-serif;
+  --schatten:0 3px 0 rgba(0,0,0,.28), 0 6px 14px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; font-family:var(--font-ui); color:var(--tinte); line-height:1.65;
+  background:
+    radial-gradient(ellipse at 50% -10%, var(--gruen-700) 0%, var(--gruen-900) 62%) fixed,
+    var(--gruen-900);
+}
+.rasen{
+  position:fixed; inset:0; z-index:-1; opacity:.20; pointer-events:none;
+  background:repeating-linear-gradient(90deg, transparent 0 60px, rgba(255,255,255,.05) 60px 120px);
+}
+.huelle{max-width:900px; margin:0 auto; padding:0 18px 90px}
+
+/* ---- Kopf ---- */
+header.kopf{text-align:center; padding:70px 0 44px}
+.logo{
+  font-family:var(--font-titel); font-size:clamp(46px,10.5vw,104px); line-height:.9;
+  letter-spacing:.02em; margin:0; color:var(--papier);
+  text-shadow:4px 4px 0 var(--rot), 8px 8px 0 rgba(0,0,0,.45);
+}
+.unter{
+  letter-spacing:.42em; text-transform:uppercase; font-size:12px; font-weight:700;
+  color:var(--gold-hell); margin-top:14px;
+}
+.anriss{
+  color:var(--papier-dunkel); max-width:620px; margin:26px auto 0; font-size:17px;
+}
+
+/* ---- Akte ---- */
+.akte{
+  background:var(--papier); border:1px solid var(--holz-900); border-radius:3px;
+  box-shadow:var(--schatten); margin:26px 0;
+}
+.akte__reiter{
+  background:linear-gradient(180deg, var(--holz-600,#6d4524), var(--holz-800));
+  color:var(--papier); padding:9px 16px; font-size:12px; font-weight:700;
+  letter-spacing:.16em; text-transform:uppercase; border-bottom:1px solid var(--holz-900);
+  display:flex; justify-content:space-between; gap:14px; align-items:center;
+}
+.akte__nr{color:var(--gold-hell); font-family:var(--font-num)}
+.akte__inhalt{padding:22px 26px 26px}
+.akte h2{
+  font-family:var(--font-titel); font-size:30px; letter-spacing:.01em; margin:.1em 0 .5em;
+  color:var(--holz-900); text-transform:uppercase;
+}
+.akte h3{font-size:15px; letter-spacing:.1em; text-transform:uppercase; color:var(--holz-700); margin:1.9em 0 .5em}
+.akte p{margin:0 0 1em}
+.akte a{color:var(--blau); text-decoration-thickness:1px; text-underline-offset:2px}
+blockquote{
+  margin:1.4em 0; padding:12px 20px; border-left:4px solid var(--gold);
+  background:var(--flaeche-hell); font-style:italic; color:var(--tinte-weich);
+}
+.klein{font-size:13px; color:var(--tinte-weich)}
+
+/* ---- Bauchbinde ---- */
+.bauchbinde{
+  display:inline-block; background:var(--rot); color:var(--papier); font-weight:700;
+  padding:3px 11px; font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+  box-shadow:2px 2px 0 rgba(0,0,0,.4);
+}
+
+/* ---- Zeitleiste ---- */
+.leiste{list-style:none; margin:0; padding:0; position:relative}
+.leiste::before{content:""; position:absolute; left:76px; top:6px; bottom:6px; width:2px; background:var(--papier-tief)}
+.leiste li{position:relative; padding:0 0 22px 104px; min-height:34px}
+.leiste time{
+  position:absolute; left:0; top:1px; width:62px; text-align:right;
+  font-family:var(--font-num); font-size:12px; color:var(--tinte-weich);
+}
+.leiste li::after{
+  content:""; position:absolute; left:70px; top:5px; width:14px; height:14px;
+  border-radius:50%; background:var(--gold); border:2px solid var(--holz-800);
+}
+.leiste li.gross::after{background:var(--rot)}
+.leiste b{display:block; color:var(--holz-900)}
+
+/* ---- Zahlen ---- */
+.zahlen{display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:12px; margin:18px 0}
+.zahl{background:var(--flaeche-hell); border:1px solid var(--linie); border-radius:2px; padding:12px 14px}
+.zahl b{display:block; font-family:var(--font-num); font-size:24px; color:var(--holz-900); line-height:1.15}
+.zahl span{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--tinte-weich)}
+
+/* ---- Bilder ---- */
+figure{margin:22px 0}
+figure img{width:100%; height:auto; display:block; border:1px solid var(--holz-900); box-shadow:var(--schatten)}
+figcaption{font-size:13px; color:var(--tinte-weich); margin-top:8px; font-style:italic}
+
+/* ---- Knöpfe ---- */
+.knopfreihe{display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin:34px 0 6px}
+.knopf{
+  display:inline-block; text-decoration:none; font-weight:700; letter-spacing:.1em;
+  text-transform:uppercase; font-size:14px; padding:14px 26px; border-radius:3px;
+  border:1px solid rgba(0,0,0,.45); box-shadow:0 3px 0 rgba(0,0,0,.35);
+}
+.knopf--spielen{background:linear-gradient(180deg,var(--gruen-500),var(--gruen-700)); color:#fff}
+.knopf--ruhig{background:linear-gradient(180deg,var(--papier),var(--papier-dunkel)); color:var(--holz-900)}
+.knopf:hover{filter:brightness(1.08)}
+.knopf:focus-visible{outline:3px solid var(--gold-hell); outline-offset:2px}
+
+footer{text-align:center; color:var(--papier-tief); font-size:13px; padding:30px 0 0}
+footer a{color:var(--gold-hell)}
+
+@media (max-width:600px){
+  .akte__inhalt{padding:18px 16px 20px}
+  .leiste::before{left:8px}
+  .leiste li{padding-left:34px}
+  .leiste li::after{left:2px}
+  .leiste time{position:static; display:block; width:auto; text-align:left; margin-bottom:2px}
+}
+</style>
+</head>
+<body>
+<div class="rasen"></div>
+<div class="huelle">
+
+<header class="kopf">
+  <h1 class="logo">TRAUMVEREIN</h1>
+  <div class="unter">Die Geschichte eines Fußballmanagers</div>
+  <p class="anriss">
+    Zwei Wochen, 20 Commits, 94.000 Zeilen — und keine einzige Abhängigkeit.
+    Wie aus einem Auftrag mit zwei Vorbildern ein Spiel wurde, in dem Beckenbauer
+    neben Kane verteidigt.
+  </p>
+  <div class="knopfreihe">
+    <a class="knopf knopf--spielen" href="./">▶ Jetzt spielen</a>
+    <a class="knopf knopf--ruhig" href="https://github.com/grundhofer/traumverein">Auf GitHub ansehen</a>
+  </div>
+</header>
+
+<article class="akte">
+  <div class="akte__reiter"><span>Der Auftrag</span><span class="akte__nr">30. Juli</span></div>
+  <div class="akte__inhalt">
+    <h2>Zwei Vorbilder, ein Spiel</h2>
+    <p>
+      Am Anfang standen zwei Dinge, die eingefangen werden sollten: die
+      <b>ran-Fußball-Romantik</b> und der <b>Take der Anstoss-Reihe</b>.
+    </p>
+    <p>
+      Also Samstagabend, Fanfare, Bauchbinde. Der Reporterton, der ein 0:0 in Uerdingen
+      ernst nimmt. Das Gefühl, dass ein Spieltag ein Ereignis ist und kein Datensatz. Und
+      dazu Anstoss' Blick auf den Beruf: Manager sein heißt Büro, Aktenschrank, Vorstand,
+      Presse — die Elf ist nur eine von vielen Baustellen, und das Spiel nimmt sich dabei
+      selbst nie ganz ernst.
+    </p>
+    <p>
+      Dazu kamen drei Bedingungen, die nie verhandelt wurden: <b>kein Framework, keine
+      Abhängigkeit, kein Build-Schritt.</b> Was hier liegt, soll in zehn Jahren noch
+      laufen, wenn ein Browser es öffnet.
+    </p>
+  </div>
+</article>
+
+<article class="akte">
+  <div class="akte__reiter"><span>Der Dreh</span><span class="akte__nr">Kern</span></div>
+  <div class="akte__inhalt">
+    <span class="bauchbinde">Der besondere Einfall</span>
+    <h2>Beckenbauer neben Kane</h2>
+    <p>
+      Ein Manager im Anstoss-Geist allein wäre eine Hommage geblieben. Der Dreh, den es so
+      nicht gibt: <b>Jeder Verein tritt mit seiner historisch stärksten Elf an — zusammen
+      mit dem aktuellen Kader.</b>
+    </p>
+    <p>
+      Bei Bayern verteidigt Franz Beckenbauer neben Harry Kane, bei Gladbach dirigiert
+      Günter Netzer, beim HSV stürmt Uwe Seeler. Und das gilt in beiden Profiligen: Toni
+      Turek hält für Fortuna, Robert Enke für Hannover, Oliver Kahn für den KSC. Wer
+      absteigt, landet nicht in einer Welt aus Zufallsnamen.
+    </p>
+    <div class="zahlen">
+      <div class="zahl"><b>864</b><span>Spieler von Hand</span></div>
+      <div class="zahl"><b>36</b><span>Kader, je 24 Mann</span></div>
+      <div class="zahl"><b>41 %</b><span>davon Legenden</span></div>
+      <div class="zahl"><b>66</b><span>Europapokal-Vereine</span></div>
+    </div>
+    <p>
+      Der Einfall war anfangs nur eine hübsche Startaufstellung. Er wurde erst zum
+      Spielprinzip, als er etwas kostete: Die Chemie zwischen Legenden und Modernen ist zu
+      Beginn schlechter und wächst erst mit gemeinsamer Spielzeit. Neun Legenden in der
+      Elf sind kein Geschenk, sondern eine Rechnung.
+    </p>
+  </div>
+</article>
+
+<article class="akte">
+  <div class="akte__reiter"><span>Der Bauverlauf</span><span class="akte__nr">30.07. – 15.08.</span></div>
+  <div class="akte__inhalt">
+    <h2>Wie es entstanden ist</h2>
+    <ul class="leiste">
+      <li class="gross">
+        <time>30. Juli</time>
+        <b>Das Grundgerüst steht</b>
+        Managerbüro, Aktenschrank, Kader, Taktik, Simulation, Saisonwechsel — der erste
+        Commit ist bereits ein spielbarer Manager.
+      </li>
+      <li>
+        <time>3. August</time>
+        <b>Ein Physikkern für alle Szenen</b>
+        Elfmeter, Freistoß, Ecke, Abschluss und Kombination rechneten je eigene Flugbahnen.
+        Sie bekommen eine gemeinsame Ballistik — damit ein Ball überall gleich fliegt.
+      </li>
+      <li>
+        <time>3. August</time>
+        <b>Die dargestellten Spieler sind die echten</b>
+        Vorher zeigte die Bühne Marken, die sich bewegten. Danach laufen 22 unterschiedlich
+        schnelle Menschen, und wer im Ticker steht, steht auch auf dem Rasen.
+      </li>
+      <li>
+        <time>3. August</time>
+        <b>Der Jubel kommt nach dem Tor</b>
+        Die Regie sortiert die Reihenfolge: erst das Ereignis, dann die Reaktion. Klingt
+        selbstverständlich; war es nicht.
+      </li>
+      <li class="gross">
+        <time>3. August</time>
+        <b>Die Anzeige hört auf zu lügen</b>
+        Fünf Commits an einem Tag, alle mit derselben Stoßrichtung: Die Animation darf dem
+        Ergebnis nicht widersprechen, und die Prozentzahl am Knopf muss die echte
+        Torchance sein — nicht eine, die sich gut anfühlt.
+      </li>
+      <li>
+        <time>6. August</time>
+        <b>Bilder aus einer echten Saison</b>
+        Vierzehn Bildschirmfotos, aufgenommen in einer laufenden Karriere beim HSV. Kein
+        gestelltes Material.
+      </li>
+      <li class="gross">
+        <time>15. August</time>
+        <b>Aus „installier dir Node" wird ein Link</b>
+        Das Spiel läuft über GitHub Pages — und als eine einzige HTML-Datei zum
+        Herunterladen, für die niemand irgendetwas installieren muss.
+      </li>
+      <li class="gross">
+        <time>15. August</time>
+        <b>Die Karriere hängt nicht mehr an Strg+S</b>
+        Automatisches Speichern, eine Warnung vor dem Schließen — und dabei zwei Fehler
+        gefunden, die einen Spielstand dauerhaft unerreichbar gemacht hätten.
+      </li>
+    </ul>
+  </div>
+</article>
+
+<article class="akte">
+  <div class="akte__reiter"><span>Der Grundsatz</span><span class="akte__nr">Arbeitsweise</span></div>
+  <div class="akte__inhalt">
+    <h2>Jede Zahl ist gemessen, nicht behauptet</h2>
+    <p>
+      Das ist der Satz, an dem sich das Projekt festhält. Er klingt nach Bürokratie und ist
+      in Wahrheit eine Bremse gegen die bequemste Lüge der Spielentwicklung: dass etwas
+      ausgewogen sei, weil es sich beim Spielen so anfühlte.
+    </p>
+    <div class="zahlen">
+      <div class="zahl"><b>23</b><span>Prüfskripte</span></div>
+      <div class="zahl"><b>~7 min</b><span>ein voller Lauf</span></div>
+      <div class="zahl"><b>94.443</b><span>Zeilen Code</span></div>
+      <div class="zahl"><b>0</b><span>Abhängigkeiten</span></div>
+    </div>
+    <p>
+      <code>npm run check</code> liest das Verzeichnis, statt eine Liste zu pflegen: Wer
+      morgen ein neues Prüfskript anlegt, läuft ab dem nächsten Durchgang mit. Was ein Ziel
+      verfehlt, steht in der Roadmap als offener Punkt mit Zahl — statt stillschweigend zu
+      verschwinden.
+    </p>
+    <blockquote>
+      Drei der vier schwersten Funde dieses Projekts kamen nicht aus einem Prüfskript,
+      sondern aus einem Harnisch, den jemand für einen Nachmittag gebaut und danach
+      weggeworfen hat.
+    </blockquote>
+    <p class="klein">
+      Der Harnisch liegt heute als <code>tools/test-screens.js</code> im Verzeichnis und
+      prüft alle Bildschirme gegen eine DOM-Attrappe.
+    </p>
+  </div>
+</article>
+
+<article class="akte">
+  <div class="akte__reiter"><span>Der Wendepunkt</span><span class="akte__nr">Ära-Konflikte</span></div>
+  <div class="akte__inhalt">
+    <span class="bauchbinde">Aus einer Zahl wird eine Frage</span>
+    <h2>Wer hat in dieser Kabine recht?</h2>
+    <p>
+      Bis zur dritten Ausbaustufe war der Legenden-Dreh eine Startaufstellung. Nach der
+      vierten war er eine Mechanik, die 0,03 Notenpunkte je Spiel wert war. Über eine
+      solche Zahl redet abends niemand.
+    </p>
+    <p>
+      Dann wurde daraus eine Frage. Wenn eine Legende und ein junger Star aneinandergeraten,
+      stellt die Kabine sie:
+    </p>
+    <blockquote>Wer hat hier recht, der Mann mit den Titeln oder der Mann mit der Zukunft?</blockquote>
+    <p>
+      <b>„Der Alte hat recht"</b> kostet die Laune der ganzen jungen Garde und Ihren Kredit
+      bei ihr. <b>„Die Zeiten haben sich geändert"</b> kostet die Legende monatelang ihr
+      Ansehen in der Kabine. Aussitzen geht auch. Das kostet am Ende meistens mehr.
+    </p>
+    <p>
+      Gemessen wurde beides: Die Frage kommt 3,08-mal je Spielzeit statt vorher 0,38-mal,
+      und die beiden Antworten kosten über 120 Tage 60,4 gegen 77,2 Punkte — in zwei
+      unabhängigen Messaufbauten dasselbe Verhältnis. Keine Antwort ist mehr auf allen
+      Achsen die billigere.
+    </p>
+    <p class="klein">
+      Ehrlich dazugesagt: In einer intakten Kabine steht es weiterhin 1,45 zugunsten des
+      Machtworts für den Alten. Das ist noch nicht rund, und es steht mit Zahlen in der
+      Roadmap.
+    </p>
+  </div>
+</article>
+
+<article class="akte">
+  <div class="akte__reiter"><span>Der Zustand</span><span class="akte__nr">heute</span></div>
+  <div class="akte__inhalt">
+    <h2>Was daraus geworden ist</h2>
+    <p>
+      Ein vollständiges Spiel: 36 Vereine in zwei Profiligen, Saisonwechsel mit Auf- und
+      Abstieg, Alterung und Karriereenden, ein Europapokal mit 66 Vereinen, dazu Kabine,
+      Jugend, Medizin, Stadion, Presse, Vorstand, eine Chronik, die sich an alles erinnert,
+      und ein Editor, der es ändern lässt.
+    </p>
+    <p>
+      Und ein Spielstand, dessen Zuwachs von Jahr zu Jahr <b>kleiner</b> wird statt größer:
+      1,66 MB in Spielzeit 2, 0,76 MB in Spielzeit 7. Beim Saisonwechsel verdichtet das
+      Spiel seine eigene Vergangenheit — die Chronik zeigt danach unverändert dasselbe.
+    </p>
+    <h3>Der nächste ehrliche Schritt</h3>
+    <p>
+      Keine neue Mechanik, sondern ein Prüfskript: <code>club/board.js</code> hat 1.576
+      Zeilen, kann das Spiel beenden — Entlassung, Vertrauensfrage, Jobangebot — und ist
+      als einziges großes Vereinsmodul völlig ungeprüft.
+    </p>
+  </div>
+</article>
+
+<div class="knopfreihe">
+  <a class="knopf knopf--spielen" href="./">▶ Spiel starten</a>
+  <a class="knopf knopf--ruhig" href="https://github.com/grundhofer/traumverein/releases/latest">Als Datei herunterladen</a>
+</div>
+
+<footer>
+  <p>
+    TRAUMVEREIN — reines JavaScript, ohne Abhängigkeiten, ohne Build-Schritt.<br>
+    <a href="https://github.com/grundhofer/traumverein">Quelltext</a> ·
+    <a href="https://github.com/grundhofer/traumverein/blob/main/docs/TECHNIK.md">Technik</a> ·
+    <a href="https://github.com/grundhofer/traumverein/blob/main/docs/ROADMAP.md">Roadmap</a>
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

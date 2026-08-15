@@ -15,6 +15,9 @@ Lieber offline? Es gibt das ganze Spiel als **eine einzige HTML-Datei** unter
 [Releases](https://github.com/grundhofer/traumverein/releases/latest) – herunterladen,
 doppelklicken, spielen. Kein Node, kein npm, kein Server.
 
+Wie das alles entstanden ist, steht auf der
+**[Geschichte des Spiels](https://grundhofer.github.io/traumverein/geschichte.html)**.
+
 ![Neues Spiel: Vereinsauswahl, Schwierigkeitsgrad, Spieldarstellung](docs/screenshots/01-neues-spiel.jpg)
 *36 Vereine aus beiden Profiligen, vier Schwierigkeitsgrade, drei Wege, ein Spiel zu erleben.*
 
