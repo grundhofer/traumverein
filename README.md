@@ -7,6 +7,10 @@ Uerdingen ernst nimmt.
 Mit einem Dreh, den es so nicht gibt: **Jeder Verein tritt mit seiner historisch stärksten
 Elf an – zusammen mit dem aktuellen Kader.**
 
+### ▶ [Jetzt im Browser spielen](https://grundhofer.github.io/traumverein/)
+
+Keine Installation, kein Konto, kein Download. Der Spielstand bleibt in Ihrem Browser.
+
 ![Neues Spiel: Vereinsauswahl, Schwierigkeitsgrad, Spieldarstellung](docs/screenshots/01-neues-spiel.jpg)
 *36 Vereine aus beiden Profiligen, vier Schwierigkeitsgrade, drei Wege, ein Spiel zu erleben.*
 
@@ -105,16 +109,18 @@ sich jede Saison merkt.
 
 ## Starten
 
-Das Spiel braucht keinen Build-Schritt, aber einen Webserver (ES-Module laufen nicht über
-`file://`):
+**Am einfachsten: [grundhofer.github.io/traumverein](https://grundhofer.github.io/traumverein/)
+öffnen und losspielen.** Dieselbe Fassung wie hier im Repository, nur schon ausgeliefert.
+
+Wer es lieber selbst betreibt, braucht keinen Build-Schritt, aber einen Webserver
+(ES-Module laufen nicht über `file://`):
 
 ```bash
 cd fussball
-npm start          # oder: node tools/server.js
+npm start          # oder: node tools/server.js — npm wird nicht gebraucht
 ```
 
-Dann **`http://localhost:8123`** im Browser öffnen. Das war's – keine Installation, keine
-Abhängigkeiten, kein Konto.
+Dann **`http://localhost:8123`** im Browser öffnen.
 
 > Der mitgelieferte Server schaltet den Browser-Zwischenspeicher ab. `python3 -m http.server`
 > tut das nicht und liefert nach Änderungen gern den alten Stand aus.

@@ -26,12 +26,27 @@
         '<p>Das Spiel konnte nicht geladen werden.</p>' +
         '<pre style="background:rgba(0,0,0,.4);padding:12px;overflow:auto;white-space:pre-wrap">' +
         String(err && err.stack || err).replace(/</g, '&lt;') + '</pre>' +
-        '<p style="opacity:.7">Hinweis: Das Spiel muss über einen Webserver laufen — und zwar über ' +
-        '<code>npm start</code> bzw. <code>node tools/server.js</code> im Projektordner, dann ' +
-        '<code>http://localhost:8123</code> öffnen. Nicht <code>python3 -m http.server</code>: ' +
-        'der schickt keine Cache-Vorgaben, Chrome liefert dann veraltete Module aus, und der ' +
-        'Fehler oben sieht aus wie ein Programmierfehler. Die Begründung steht im Kopf von ' +
-        '<code>tools/server.js</code>.</p>';
+        hinweis();
+      // Der Rat hängt daran, woher diese Seite kam. Über file:// ist die Ursache
+      // immer dieselbe; auf einem Server ist es nie der fehlende Server.
+      function hinweis() {
+        if (location.protocol === 'file:') {
+          return '<p style="opacity:.7">Das Spiel liegt hier als Datei im Dateisystem. ' +
+            'ES-Module laden der Browser über <code>file://</code> grundsätzlich nicht — ' +
+            'das ist kein Fehler dieses Spiels, sondern eine Sicherheitsregel des Browsers.<br>' +
+            'Zwei Wege: online spielen unter ' +
+            '<a style="color:#e8c33a" href="https://grundhofer.github.io/traumverein/">grundhofer.github.io/traumverein</a>, ' +
+            'oder im Projektordner <code>npm start</code> (bzw. <code>node tools/server.js</code>) ' +
+            'starten und <code>http://localhost:8123</code> öffnen.</p>';
+        }
+        return '<p style="opacity:.7">Ein Modul konnte nicht geladen werden. Wenn Sie gerade ' +
+          'Dateien geändert haben: Der Browser hält vermutlich einen veralteten Stand. ' +
+          'Einmal hart neu laden (<code>Strg</code>/<code>Cmd</code> + <code>Umschalt</code> + <code>R</code>) ' +
+          'räumt das aus.<br>Für die Entwicklung <code>npm start</code> benutzen — ' +
+          '<code>python3 -m http.server</code> schickt keine Cache-Vorgaben und liefert dann ' +
+          'veraltete Module aus, was oben wie ein Programmierfehler aussieht. Die Begründung ' +
+          'steht im Kopf von <code>tools/server.js</code>.</p>';
+      }
       app.appendChild(box);
     });
   </script>
