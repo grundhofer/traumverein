@@ -39,6 +39,30 @@ relativ, es gibt nichts umzubauen. `.nojekyll` ist dabei Pflicht und keine Forma
 Jekyll verschluckt Dateien mit führendem Unterstrich, und `src/data/squads/_helper.js`
 wäre genau das Modul, das dann fehlt.
 
+**Als App installierbar und offline lauffähig** macht das Spiel ein Service Worker samt
+Manifest. Beides wird erzeugt, nicht von Hand gepflegt:
+
+```bash
+npm run build:offline    # zeichnet die Symbole und schreibt sw.js neu
+npm run check -- pwa     # prüft, ob beides noch zum Verzeichnis passt
+```
+
+`tools/make-icons.js` zeichnet die App-Symbole als PNG — mit einem eigenen kleinen
+PNG-Schreiber auf Basis von `node:zlib`, weil dieses Projekt keine Bilddateien und keine
+Bibliotheken hat. `tools/make-sw.js` sammelt alle 85 auszuliefernden Dateien und stempelt
+eine **Fassungsnummer aus dem Streuwert ihrer Inhalte** in `sw.js`. Ändert sich eine Zeile,
+heißt der Speicher anders, der Browser holt alles neu und wirft den alten Stand weg — kein
+halb veralteter Satz Module, dieselbe Sorge wie bei `tools/server.js`.
+
+Der teuerste Fehler dieser Bauart wäre still: Ein neues Modul kommt dazu, niemand erzeugt
+`sw.js` neu, und es fällt erst auf, wenn jemand ohne Netz einen Bildschirm öffnet, den er
+vorher nie besucht hat. Genau das prüft `tools/check-pwa.js` — Liste gegen Verzeichnis,
+Fassungsnummer gegen Inhalt, Manifest gegen vorhandene Symbole — und läuft über die
+Verzeichnisauslese automatisch bei jedem `npm run check` mit.
+
+Angemeldet wird der Service Worker nur über `http(s)`. Die Einzeldatei aus dem Release
+braucht ihn nicht: Sie trägt alles schon in sich.
+
 **Eine einzige HTML-Datei** für den Download erzeugt `npm run build:single`
 (→ `dist/traumverein.html`, rund 4,4 MB, in `.gitignore`).
 

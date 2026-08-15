@@ -6,6 +6,8 @@
   <title>TRAUMVEREIN – Der Fußballmanager</title>
   <link rel="stylesheet" href="styles/main.css">
   <link rel="stylesheet" href="styles/screens.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1c4a22">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚽</text></svg>">
 </head>
 <body>
@@ -13,6 +15,20 @@
     <div class="tv-lade" id="tv-boot">TRAUMVEREIN wird geladen …</div>
   </div>
   <div id="tv-toasts"></div>
+
+  <script>
+    // Offline lauffähig und installierbar machen. Nur über http(s): Aus einer
+    // lokalen Datei gibt es keine Service Worker, und die Einzeldatei aus dem
+    // Release braucht auch keine – sie trägt alles schon in sich.
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch((err) => {
+          // Kein Grund, den Start zu verhindern – das Spiel läuft auch ohne.
+          console.warn('[start] Offline-Fassung nicht eingerichtet:', err);
+        });
+      });
+    }
+  </script>
 
   <script type="module">
     import { boot } from './src/main.js';

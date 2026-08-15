@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node tools/server.js",
     "build:single": "node tools/build-single.js",
+    "build:offline": "node tools/make-icons.js && node tools/make-sw.js",
     "check": "node tools/check-suite.js",
     "check:all": "node tools/check-all.js",
     "check:screens": "node tools/check-screens.js",

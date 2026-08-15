@@ -41,6 +41,8 @@ const SELBST = basename(fileURLToPath(import.meta.url));
 const AUSGENOMMEN = {
   'server.js': 'Entwicklungsserver, läuft endlos',
   'build-single.js': 'Erzeuger für das Download-Paket, prüft nichts',
+  'make-sw.js': 'schreibt sw.js, prüft nichts – check-pwa.js prüft das Ergebnis',
+  'make-icons.js': 'zeichnet die App-Symbole, prüft nichts',
   [SELBST]: 'diese Datei'
 };
 

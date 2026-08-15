@@ -11,8 +11,12 @@ Elf an – zusammen mit dem aktuellen Kader.**
 
 Keine Installation, kein Konto, kein Download. Der Spielstand bleibt in Ihrem Browser.
 
-Lieber offline? Es gibt das ganze Spiel als **eine einzige HTML-Datei** unter
-[Releases](https://github.com/grundhofer/traumverein/releases/latest) – herunterladen,
+Beim ersten Besuch bietet Ihr Browser **„Installieren"** an (Adresszeile oder Menü). Dann
+liegt das Spiel als App im Dock, startet im eigenen Fenster und läuft **auch ohne
+Internet** weiter.
+
+Lieber eine Datei zum Weitergeben? Das ganze Spiel gibt es als **eine einzige HTML-Datei**
+unter [Releases](https://github.com/grundhofer/traumverein/releases/latest) – herunterladen,
 doppelklicken, spielen. Kein Node, kein npm, kein Server.
 
 Wie das alles entstanden ist, steht auf der
@@ -118,6 +122,18 @@ sich jede Saison merkt.
 
 **Am einfachsten: [grundhofer.github.io/traumverein](https://grundhofer.github.io/traumverein/)
 öffnen und losspielen.** Dieselbe Fassung wie hier im Repository, nur schon ausgeliefert.
+
+Es gibt drei Wege, und alle drei führen zum selben Spiel:
+
+| Weg | Wie | Offline | Spielstände |
+|---|---|---|---|
+| **Im Browser** | Link öffnen | nach dem ersten Besuch | Datenbank des Browsers |
+| **Als App** | im Browser auf „Installieren" | ja | Datenbank des Browsers |
+| **Als Datei** | `traumverein.html` aus den Releases | ja | gepackt daneben |
+
+Die App-Fassung ist kein zweites Programm: Es ist dieselbe Seite, die der Browser als
+eigenständiges Fenster einrichtet und offline vorhält. Sie aktualisiert sich von selbst,
+sobald es hier etwas Neues gibt.
 
 **Offline, ohne alles:** die Datei `traumverein.html` aus dem
 [neuesten Release](https://github.com/grundhofer/traumverein/releases/latest) laden und im
