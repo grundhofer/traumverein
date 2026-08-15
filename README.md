@@ -177,11 +177,20 @@ Szenenarten, Lautstärke, Stadionatmosphäre, Klänge, Textgeschwindigkeit des T
 Rückfragen bei folgenschweren Aktionen und die automatische Aufstellung. Die Werte hängen
 am Spielstand – jede Karriere darf ihre eigenen Vorlieben haben.
 
-### Speichern
+### Speichern und fortsetzen
 
-Spielstände liegen in der Datenbank des Browsers. Über das Symbol ⬇ in der Kopfleiste
-lässt sich ein Stand zusätzlich als Datei sichern und später wieder einlesen; das
-überlebt auch das Löschen der Browserdaten.
+Das Spiel **sichert von selbst**, während Sie spielen – etwa im Wochenrhythmus des
+Spielkalenders. Beim nächsten Öffnen steht auf dem Startbildschirm **„Spielstand laden"**,
+und der Eintrag „Automatisch" bringt Sie dorthin zurück, wo Sie aufgehört haben. Wer die
+Seite mit ungesicherten Tagen schließt, wird vorher gefragt.
+
+Zusätzlich von Hand: `Strg` + `S` oder das Symbol 💾 in der Kopfleiste legt einen eigenen
+Stand an, der von der Automatik nicht überschrieben wird.
+
+Alles liegt in der Datenbank des Browsers – also im Browser, auf Ihrem Rechner, ohne
+Konto. Über das Symbol ⬇ lässt sich ein Stand zusätzlich als **Datei** sichern und später
+wieder einlesen; das überlebt auch das Löschen der Browserdaten und lässt sich zwischen
+Online-Fassung und Download hin- und herreichen.
 
 ### Editor (hinter einem Tastenkürzel)
 

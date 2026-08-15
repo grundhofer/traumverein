@@ -94,6 +94,27 @@ groß (gemessen: 2,85 MB am ersten Tag) und würde das localStorage-Kontingent s
 Über das Symbol ⬇ in der Kopfleiste lässt sich ein Spielstand zusätzlich als Datei sichern
 und wieder einlesen.
 
+**Verzeichnis und Inhalt liegen getrennt.** Die Liste der Spielstände (Verein, Saison, Tag,
+Größe) steht als kleine JSON-Zeile in `localStorage` unter `traumverein.saves`, damit
+`listSaves()` **synchron** arbeiten kann – der Startbildschirm entscheidet ohne Warten, ob
+er „Spielstand laden" anbietet. Die mehrere Megabyte großen Stände selbst liegen in der
+IndexedDB unter `traumverein.save.<slot>`.
+
+**Automatisch gespeichert** wird in den Slot `'auto'` (den `hasAutosave()` seit jeher
+vorsieht), angestoßen am Ende von `weiter()` in `main.js` und gedrosselt auf höchstens
+einen Schreibvorgang je `AUTOSAVE_ABSTAND` Ticks. Von Hand gespeicherte Stände liegen in
+Slot 1 und werden davon nie überschrieben. Ein `beforeunload`-Wächter meldet sich, wenn
+`state.tick` über den zuletzt gesicherten Stand hinausgelaufen ist.
+
+**Die Datenbank wird ohne Versionsnummer geöffnet.** Eine feste Zahl in
+`indexedDB.open(DB_NAME, 1)` ist eine Falle: Steht die Datenbank aus irgendeinem Grund
+höher, scheitert jedes Öffnen mit „The requested version (1) is less than the existing
+version (2)" – und der Spielstand ist unerreichbar, dauerhaft. Ohne Angabe nimmt der
+Browser die vorhandene Fassung; existiert sie nicht, legt er Version 1 an. Fehlt in einer
+vorhandenen Datenbank die Ablage – möglich, wenn ein Upgrade beim ersten Mal abbrach –,
+zählt `openDb()` die Version einmal hoch und legt sie nachträglich an, statt den Spieler
+mit einer unbrauchbaren Datenbank sitzen zu lassen.
+
 **Über `file://` gibt es keine Datenbank.** Chrome verweigert einer lokal geöffneten Datei
 den IndexedDB-Zugriff – und zwar wortlos: `indexedDB` existiert, `open()` nimmt den Aufruf
 an, und danach kommt weder `onsuccess` noch `onerror`. Ohne Gegenmaßnahme wartet das Spiel

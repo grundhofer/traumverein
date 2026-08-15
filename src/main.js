@@ -119,6 +119,7 @@ const app = {
 export async function boot(root) {
   app.root = root;
   root.innerHTML = '';
+  bewacheSchliessen();
   await zeigeStartbildschirm();
 }
 
@@ -279,6 +280,11 @@ async function spielStarten(auswahl) {
 async function spielAufbauen(state) {
   app.state = state;
   app.root.innerHTML = '';
+
+  // Ein frisch geladener oder neu begonnener Stand gilt als gesichert – sonst
+  // warnte das Schließen sofort, obwohl noch kein Tag vergangen ist.
+  gesichertBis = state.tick;
+  letzterAutosave = state.tick;
 
   // Rückfragen sind eine Einstellung (state.settings.bestaetigungen), render/ui.js
   // hat aber keinen Zugriff auf den Spielstand – also einmal beim Aufbau setzen.
@@ -755,11 +761,64 @@ export const actions = {
 async function speichern(slot = 1) {
   try {
     const eintrag = await saveGame(app.state, slot);
+    gesichertBis = app.state.tick;
     toast(`Gespeichert: ${eintrag.label}`, 'gut');
   } catch (err) {
     console.error('[main] Speichern fehlgeschlagen:', err);
     toast('Speichern fehlgeschlagen: ' + err.message + ' – nutzen Sie „Als Datei sichern".', 'schlecht');
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Automatisches Speichern
+ *
+ * Eine Karriere über zehn Saisons ist zu viel Arbeit, um sie an ein vergessenes
+ * Strg+S zu hängen. `hasAutosave()` in core/state.js sieht den Slot 'auto' seit
+ * jeher vor – geschrieben hat ihn nur nie jemand.
+ *
+ * Zurückhaltend: Ein Spielstand ist rund fünf Megabyte, also nicht bei jedem
+ * Tastendruck, sondern höchstens alle AUTOSAVE_ABSTAND Ticks. Und leise – wer
+ * spielt, will keine Erfolgsmeldung, sondern seinen Spielstand.
+ * ------------------------------------------------------------------------- */
+
+/** So viele Ticks müssen zwischen zwei automatischen Sicherungen liegen. */
+const AUTOSAVE_ABSTAND = 7;
+
+/** Bis zu diesem Tick ist der Stand gesichert – Grundlage der Schließen-Warnung. */
+let gesichertBis = -1;
+let letzterAutosave = -Infinity;
+let autosaveKlage = false;
+
+async function autoSpeichern() {
+  if (!app.state) return;
+  const tick = app.state.tick;
+  if (tick - letzterAutosave < AUTOSAVE_ABSTAND) return;
+  try {
+    await saveGame(app.state, 'auto', `Automatisch – Saison ${app.state.date.season}, Tag ${app.state.date.day}`);
+    letzterAutosave = tick;
+    gesichertBis = tick;
+  } catch (err) {
+    // Ohne Datenbank – etwa aus einer lokalen Datei geöffnet – scheitert das
+    // jedes Mal. Einmal sagen reicht; danach nur noch ins Protokoll.
+    console.warn('[main] Automatisches Speichern fehlgeschlagen:', err);
+    if (!autosaveKlage) {
+      autosaveKlage = true;
+      toast('Automatisches Speichern geht hier nicht: ' + err.message
+        + ' Sichern Sie über ⬇ als Datei.', 'warn');
+    }
+  }
+}
+
+/**
+ * Warnt, wenn ungesicherte Tage im Spiel stehen. Der Browser zeigt dabei seinen
+ * eigenen Text – wir können nur sagen, dass es etwas zu verlieren gibt.
+ */
+function bewacheSchliessen() {
+  window.addEventListener('beforeunload', (e) => {
+    if (!app.state || app.state.tick <= gesichertBis) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
 }
 
 /** Spielstand als Datei herunterladen – unabhängig vom Browserspeicher. */
@@ -835,6 +894,9 @@ async function weiter() {
     await navigate(app.aktuellerScreen || 'buero');
   } finally {
     app.laeuft = false;
+    // Nach jedem Halt, an dem der Manager wieder am Zug ist – auch nach einem
+    // frühen return oben, dafür steht es im finally.
+    await autoSpeichern();
   }
 }
 

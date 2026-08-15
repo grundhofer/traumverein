@@ -1453,7 +1453,14 @@ function openDb() {
       reject(new Error('Aus einer lokalen Datei erlaubt der Browser keine Datenbank.'));
       return;
     }
-    const req = indexedDB.open(DB_NAME, 1);
+    // OHNE Versionsnummer öffnen. Eine feste Zahl hier wäre eine Falle: Sobald
+    // die Datenbank aus irgendeinem Grund höher steht — etwa nach der Reparatur
+    // weiter unten — scheitert jedes weitere Öffnen mit „The requested version
+    // is less than the existing version", und der Spielstand ist für immer
+    // unerreichbar. Ohne Angabe nimmt der Browser die vorhandene Fassung; nur
+    // wenn es die Datenbank noch gar nicht gibt, legt er sie als Version 1 an
+    // und ruft onupgradeneeded.
+    const req = indexedDB.open(DB_NAME);
     // Zweiter Boden für alles, was sich sonst noch stumm aufhängt (Privatmodus
     // mancher Browser, gesperrte Datenbanken).
     const wecker = setTimeout(() => {
@@ -1464,8 +1471,32 @@ function openDb() {
       const db = req.result;
       if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
     };
-    req.onsuccess = fertig(() => resolve(req.result));
+    req.onsuccess = fertig(() => {
+      const db = req.result;
+      // Eine Datenbank in der erwarteten Version, aber ohne Ablage: Dann bleibt
+      // onupgradeneeded aus, jede Transaktion scheitert, und der Spieler kommt
+      // aus diesem Zustand nie wieder heraus. Passiert, wenn ein Upgrade beim
+      // ersten Mal abbrach. Einmal hochzählen legt die Ablage nachträglich an.
+      if (!db.objectStoreNames.contains(DB_STORE)) {
+        const naechste = db.version + 1;
+        db.close();
+        const reparatur = indexedDB.open(DB_NAME, naechste);
+        reparatur.onupgradeneeded = () => {
+          const rdb = reparatur.result;
+          if (!rdb.objectStoreNames.contains(DB_STORE)) rdb.createObjectStore(DB_STORE);
+        };
+        reparatur.onsuccess = () => resolve(reparatur.result);
+        reparatur.onerror = () => reject(reparatur.error
+          || new Error('Die Spielstand-Ablage konnte nicht angelegt werden.'));
+        reparatur.onblocked = () => reject(new Error(
+          'Die Datenbank ist von einem anderen Tab belegt – bitte andere Tabs dieses Spiels schließen.'));
+        return;
+      }
+      resolve(db);
+    });
     req.onerror = fertig(() => reject(req.error || new Error('IndexedDB konnte nicht geöffnet werden.')));
+    req.onblocked = fertig(() => reject(new Error(
+      'Die Datenbank ist von einem anderen Tab belegt – bitte andere Tabs dieses Spiels schließen.')));
   });
   // Ein gescheiterter Versuch darf den nächsten nicht vergiften.
   dbPromise.catch(() => { dbPromise = null; });
