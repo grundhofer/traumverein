@@ -1435,6 +1435,9 @@ function storage() {
   return null;
 }
 
+/** Nach so vielen Millisekunden gilt ein stummes indexedDB.open() als gescheitert. */
+const DB_GEDULD_MS = 8000;
+
 function openDb() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
@@ -1442,14 +1445,30 @@ function openDb() {
       reject(new Error('IndexedDB ist in diesem Browser nicht verfügbar.'));
       return;
     }
+    // Aus einer lokalen Datei geöffnet, verweigert Chrome die Datenbank – aber
+    // ohne ein Wort: indexedDB gibt es, open() nimmt den Aufruf an, und dann
+    // kommt weder onsuccess noch onerror. Ohne diesen Zweig wartet das Spiel
+    // ewig auf eine Antwort, die nie kommt, und das Speichern hängt stumm.
+    if (typeof location !== 'undefined' && location.protocol === 'file:') {
+      reject(new Error('Aus einer lokalen Datei erlaubt der Browser keine Datenbank.'));
+      return;
+    }
     const req = indexedDB.open(DB_NAME, 1);
+    // Zweiter Boden für alles, was sich sonst noch stumm aufhängt (Privatmodus
+    // mancher Browser, gesperrte Datenbanken).
+    const wecker = setTimeout(() => {
+      reject(new Error('Der Browser antwortet nicht auf die Datenbank.'));
+    }, DB_GEDULD_MS);
+    const fertig = (fn) => (...args) => { clearTimeout(wecker); return fn(...args); };
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('IndexedDB konnte nicht geöffnet werden.'));
+    req.onsuccess = fertig(() => resolve(req.result));
+    req.onerror = fertig(() => reject(req.error || new Error('IndexedDB konnte nicht geöffnet werden.')));
   });
+  // Ein gescheiterter Versuch darf den nächsten nicht vergiften.
+  dbPromise.catch(() => { dbPromise = null; });
   return dbPromise;
 }
 

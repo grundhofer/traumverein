@@ -121,6 +121,12 @@ sich jede Saison merkt.
 Browser öffnen. Das ganze Spiel steckt in dieser einen Datei – Module, Grafik, Ton, alle
 864 Spieler. Sie braucht einen Browser ab Chrome/Edge 89, Firefox 108 oder Safari 16.4.
 
+> **Eine Einschränkung offline:** Aus einer lokalen Datei geöffnet, verweigert der Browser
+> jeder Seite den Zugriff auf seine Datenbank – das Spiel kann dort also nicht in den
+> Browser speichern und sagt das auch. Sichern Sie Ihren Stand stattdessen über das Symbol
+> ⬇ in der Kopfleiste als Datei; einlesen geht genauso. Wer lieber im Browser speichert,
+> spielt online.
+
 Wer es lieber selbst betreibt, braucht keinen Build-Schritt, aber einen Webserver
 (ES-Module laufen nicht über `file://`):
 

@@ -90,8 +90,19 @@ docs/                 Technische Verträge, Roadmap, Bildschirmfotos
 ## Spielstände
 
 Spielstände liegen in der **IndexedDB** des Browsers – ein Spielstand ist mehrere Megabyte
-groß und würde das localStorage-Kontingent sprengen. Über das Symbol ⬇ in der Kopfleiste
-lässt sich ein Spielstand zusätzlich als Datei sichern und wieder einlesen.
+groß (gemessen: 2,85 MB am ersten Tag) und würde das localStorage-Kontingent sprengen.
+Über das Symbol ⬇ in der Kopfleiste lässt sich ein Spielstand zusätzlich als Datei sichern
+und wieder einlesen.
+
+**Über `file://` gibt es keine Datenbank.** Chrome verweigert einer lokal geöffneten Datei
+den IndexedDB-Zugriff – und zwar wortlos: `indexedDB` existiert, `open()` nimmt den Aufruf
+an, und danach kommt weder `onsuccess` noch `onerror`. Ohne Gegenmaßnahme wartet das Spiel
+ewig auf eine Antwort, die nie kommt, und das Speichern hängt stumm. `openDb()` in
+`core/state.js` prüft deshalb das Protokoll und lehnt sofort mit einer Begründung ab; ein
+Zeitgeber von 8 s fängt zusätzlich alles ab, was sich sonst noch aufhängt (Privatmodus,
+gesperrte Datenbanken). Die Fehlermeldung des Spiels verweist auf „Als Datei sichern", und
+dieser Weg funktioniert lokal einwandfrei – nachgemessen: 2,85 MB JSON, Anker-Klick,
+Bestätigung.
 
 Sie wachsen nicht unbegrenzt: Bei jedem Saisonwechsel verdichtet
 `core/state.js:verdichteVergangenheit()` die Vergangenheit — ein Spieler, der vor drei
